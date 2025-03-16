@@ -1,0 +1,45 @@
+{
+  "name": "mcp-reporter",
+  "version": "1.0.0",
+  "description": "MCP Reporter is a utility for generating comprehensive reports about Model Context Protocol (MCP) server capabilities, helping developers understand what functionality is available across their MCP server ecosystem. Can also be used programmatically to generate reports for documentation or for feeding into other tools.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "mcp-reporter": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc && node -e \"process.platform !== 'win32' && require('fs').existsSync('dist/index.js') && require('fs').chmodSync('dist/index.js', '0755') && require('fs').existsSync('dist/cli.js') && require('fs').chmodSync('dist/cli.js', '0755')\"",
+    "start": "node dist/index.js",
+    "clean": "ts-node --project tsconfig.scripts.json scripts/clean.ts",
+    "rebuild": "npm run clean && npm run build",
+    "tree": "ts-node --project tsconfig.scripts.json scripts/tree.ts"
+  },
+  "keywords": [
+    "ai",
+    "agent",
+    "llm",
+    "mcp",
+    "model-context-protocol",
+    "reporting",
+    "utility",
+    "documentation",
+    "llm-ecosystem",
+    "api-documentation",
+    "mcp-reporter"
+  ],
+  "author": "Casey Hand @cyanheads",
+  "license": "Apache-2.0",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.7.0",
+    "chalk": "^5.4.1",
+    "commander": "^13.1.0",
+    "fast-glob": "^3.3.2", 
+    "fs-extra": "^11.2.0",
+    "ora": "^8.2.0",
+    "@types/node": "^22.13.10",
+    "nodemon": "^3.1.9",
+    "rimraf": "^6.0.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.8.2"
+  }
+}
