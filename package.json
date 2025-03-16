@@ -1,7 +1,7 @@
 {
   "name": "mcp-reporter",
-  "version": "1.0.0",
-  "description": "MCP Reporter is a utility for generating comprehensive reports about Model Context Protocol (MCP) server capabilities, helping developers understand what functionality is available across their MCP server ecosystem. Can also be used programmatically to generate reports for documentation or for feeding into other tools.",
+  "version": "1.0.1",
+  "description": "mcp-reporter is a streamlined utility that generates comprehensive capability reports for Model Context Protocol servers, empowering developers to easily understand available functionality across their MCP servers ecosystem for both documentation and integration into other tools.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {

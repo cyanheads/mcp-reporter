@@ -2,7 +2,7 @@
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.8-blue.svg)](https://www.typescriptlang.org/)
 [![Model Context Protocol](https://img.shields.io/badge/MCP-1.7.0-green.svg)](https://modelcontextprotocol.io/)
-[![Version](https://img.shields.io/badge/Version-1.0.0-blue.svg)]()
+[![Version](https://img.shields.io/badge/Version-1.0.1-blue.svg)]()
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Status](https://img.shields.io/badge/Status-Stable-green.svg)]()
 [![GitHub](https://img.shields.io/github/stars/cyanheads/mcp-reporter?style=social)](https://github.com/cyanheads/mcp-reporter)
@@ -11,7 +11,6 @@ MCP Reporter is a utility for generating comprehensive reports about Model Conte
 
 ## Table of Contents
 
-- [Overview](#overview)
 - [Features](#features)
 - [Installation](#installation)
 - [Configuration](#configuration)
@@ -22,10 +21,6 @@ MCP Reporter is a utility for generating comprehensive reports about Model Conte
 - [Development](#development)
 - [License](#license)
 - [Author](#author)
-
-## Overview
-
-MCP Reporter connects to configured MCP servers, queries their capabilities (tools, resources, and resource templates), and generates detailed markdown reports. This helps document the functionality available to LLM agents and other clients that interact with these servers.
 
 ## Features
 
