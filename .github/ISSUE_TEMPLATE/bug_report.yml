@@ -1,0 +1,116 @@
+name: Bug Report
+description: Report a bug in mcp-reporter
+labels: ["bug"]
+assignees: ["cyanheads"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. mcp-reporter connects to MCP servers and writes a capability report — if the wrong data lands in the report, first check whether the server itself advertises it (`tools/list` output), then file here.
+
+        **Do not include secrets, credentials, API keys, tokens, PII, or other sensitive data.** Server configs routinely hold API keys in `env` — redact every value before pasting a config, log, or stack trace. GitHub issues are public and permanent.
+
+        **Secondary labels.** `bug` is applied automatically — also add one or more of the following in the sidebar if they apply:
+        - `regression` — worked before, broken after an update
+        - `performance` — memory, CPU, latency, or resource usage
+        - `security` — vulnerability or hardening work
+        - `breaking-change` — fix will break the CLI or programmatic API
+        - `surplus-token-idea` — worth exploring when token budget allows
+
+  - type: input
+    id: version
+    attributes:
+      label: mcp-reporter version
+      placeholder: "1.0.1"
+    validations:
+      required: true
+
+  - type: input
+    id: node-version
+    attributes:
+      label: Node.js version
+      placeholder: "22.14.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: entry-point
+    attributes:
+      label: Entry point
+      options:
+        - CLI (mcp-reporter)
+        - Programmatic (McpReporter class)
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: OS
+      placeholder: "macOS 15.x / Ubuntu 24.04 / Windows 11"
+    validations:
+      required: false
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What happened and what you expected instead.
+      placeholder: "A server advertising 40 tools is reported with only the first 25."
+    validations:
+      required: true
+
+  - type: textarea
+    id: config
+    attributes:
+      label: Server config
+      description: The `mcpServers` entry that reproduces it, with every `env` value redacted.
+      render: json
+      placeholder: |
+        {
+          "mcpServers": {
+            "example-mcp-server": {
+              "command": "node",
+              "args": ["/path/to/example-mcp-server/dist/index.js"],
+              "env": { "EXAMPLE_API_KEY": "REDACTED" }
+            }
+          }
+        }
+    validations:
+      required: false
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: The exact command or code you ran.
+      render: shell
+      placeholder: |
+        mcp-reporter --config mcp-servers.json --output output/report.md
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Console output, error messages, or the incorrect section of the generated report.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What should have happened.
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Workarounds, related issues, or anything else relevant.
+    validations:
+      required: false

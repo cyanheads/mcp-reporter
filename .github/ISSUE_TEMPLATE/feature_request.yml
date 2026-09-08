@@ -1,0 +1,54 @@
+name: Feature Request
+description: Suggest a new feature or improvement for mcp-reporter
+labels: ["enhancement"]
+assignees: ["cyanheads"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Secondary labels.** `enhancement` is applied automatically — also add one or more of the following in the sidebar if they apply:
+        - `performance` — improves memory, CPU, latency, or resource usage
+        - `security` — hardens the security posture
+        - `breaking-change` — will break the CLI or programmatic API
+        - `surplus-token-idea` — worth exploring when token budget allows
+
+  - type: textarea
+    id: use-case
+    attributes:
+      label: Use case
+      description: What problem does this solve? Who benefits?
+      placeholder: "Remote MCP servers are reachable only over Streamable HTTP, so a report can't cover a hosted deployment..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: The new behavior, config key, CLI flag, or report section. Include example config or output if it helps.
+      placeholder: |
+        A server entry with `"url"` instead of `"command"` connects over Streamable HTTP:
+
+        {
+          "mcpServers": {
+            "example": { "url": "https://example.com/mcp" }
+          }
+        }
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What you tried or considered instead, and why it fell short.
+    validations:
+      required: false
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Related issues, prior art, links, or anything else relevant.
+    validations:
+      required: false

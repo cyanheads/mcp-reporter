@@ -1,240 +1,332 @@
-#!/usr/bin/env node
-
 /**
- * Generate Tree Script
- * ===================
- * 
- * Description:
- *   A utility script that generates a visual tree representation of your project's directory structure.
- *   The script respects .gitignore patterns and applies common exclusions like node_modules.
- *   The tree is saved as a markdown file by default in the docs directory.
- * 
- * Usage:
- *   - Add to package.json: "tree": "node dist/scripts/generate-tree.js"
- *   - Run directly: npm run tree
- *   - Specify custom output path: node dist/scripts/generate-tree.js ./documentation/structure.md
- *   - Specify max depth: node dist/scripts/generate-tree.js --depth=3
- *   - Get help: node dist/scripts/generate-tree.js --help
- * 
- * Features:
- *   - Automatically excludes directories listed in .gitignore
- *   - Handles directory sorting (folders first)
- *   - Supports custom output path
- *   - Works on all platforms
- *   - Can limit directory depth
+ * @fileoverview Generates a visual tree representation of the project's directory structure.
+ * @module scripts/tree
+ *   Respects .gitignore patterns and common exclusions (e.g., node_modules).
+ *   Saves the tree to a markdown file (default: docs/tree.md).
+ *   Supports custom output path, depth limitation, and additional ignore patterns.
+ *
+ * @example
+ * // Generate tree with default settings:
+ * // bun run tree
+ *
+ * @example
+ * // Specify custom output path and depth:
+ * // bun run scripts/tree.ts ./documentation/structure.md --depth=3
+ *
+ * @example
+ * // Add additional ignore patterns:
+ * // bun run scripts/tree.ts --ignore=coverage --ignore="*.log"
+ *
+ * @example
+ * // Preview tree without writing to disk:
+ * // bun run scripts/tree.ts --dry-run
  */
+import type { Dirent } from 'node:fs';
+import { mkdir, readdir, readFile, realpath, writeFile } from 'node:fs/promises';
+import { basename, dirname, join, posix, relative, resolve, sep } from 'node:path';
+import ignore from 'ignore';
 
-import fs from 'fs/promises';
-import path from 'path';
+type Ignore = ReturnType<typeof ignore>;
 
-// Process command line arguments
-const args = process.argv.slice(2);
-let outputPath = 'docs/tree.md';
-let maxDepth = Infinity;
+const KNOWN_FLAGS = ['--depth', '--ignore', '--help', '--dry-run'] as const;
 
-/**
- * Interface for gitignore pattern
- */
-interface GitignorePattern {
-  pattern: string;
-  negated: boolean;
-  regex: string;
+const DEFAULT_IGNORE_PATTERNS: string[] = [
+  '.git',
+  'node_modules',
+  '.DS_Store',
+  'dist',
+  'build',
+  'coverage',
+  'logs',
+  '.husky/_',
+  // Directory-based changelog — keep series dirs visible (0.1.x/, 0.5.x/) for structural
+  // orientation, but collapse out the per-version files. Top-level template.md stays.
+  'changelog/*/*.md',
+];
+
+interface ParsedArgs {
+  dryRun: boolean;
+  extraIgnorePatterns: string[];
+  maxDepth: number;
+  outputPath: string;
 }
 
-// Handle command line options
-if (args.includes('--help')) {
-  console.log(`
-Generate Tree - Project directory structure visualization tool
+function parseArgs(argv: string[]): ParsedArgs {
+  const result: ParsedArgs = {
+    outputPath: 'docs/tree.md',
+    maxDepth: Infinity,
+    extraIgnorePatterns: [],
+    dryRun: false,
+  };
 
-Usage:
-  node dist/scripts/generate-tree.js [output-path] [--depth=<number>] [--help]
-
-Options:
-  output-path      Custom file path for the tree output (default: docs/tree.md)
-  --depth=<number> Maximum directory depth to display (default: unlimited)
-  --help           Show this help message
-`);
-  process.exit(0);
-}
-
-// Default patterns to always ignore
-const DEFAULT_IGNORE_PATTERNS: string[] = ['.git', 'node_modules', '.DS_Store', 'dist', 'build'];
-
-/**
- * Loads patterns from the .gitignore file
- */
-async function loadGitignorePatterns(): Promise<GitignorePattern[]> {
-  try {
-    const gitignoreContent = await fs.readFile('.gitignore', 'utf-8');
-    return gitignoreContent
-      .split('\n')
-      .map(line => line.trim())
-      // Remove comments, empty lines, and lines with just whitespace
-      .filter(line => line && !line.startsWith('#') && line.trim() !== '')
-      // Process each pattern
-      .map(pattern => ({
-        pattern: pattern.startsWith('!') ? pattern.slice(1) : pattern,
-        negated: pattern.startsWith('!'),
-        // Convert glob patterns to regex-compatible strings (simplified approach)
-        regex: pattern
-          .replace(/\./g, '\\.') // Escape dots first
-          .replace(/\*/g, '.*')  // Convert * to .*
-          .replace(/\?/g, '.')   // Convert ? to .
-          .replace(/\/$/, '(/.*)?') // Handle directory indicators
-      }));
-  } catch (error) {
-    console.warn('No .gitignore file found, using default patterns only');
-    return [];
-  }
-}
-
-/**
- * Checks if a path should be ignored based on patterns
- */
-function isIgnored(entryPath: string, ignorePatterns: GitignorePattern[]): boolean {
-  // Always check default patterns first
-  if (DEFAULT_IGNORE_PATTERNS.some(pattern => entryPath.includes(pattern))) {
-    return true;
-  }
-
-  let ignored = false;
-  for (const { pattern, negated, regex } of ignorePatterns) {
-    // Convert the pattern to a proper regex
-    const regexPattern = new RegExp(`^${regex}$|/${regex}$|/${regex}/`);
-    
-    if (regexPattern.test(entryPath)) {
-      // If it's a negation pattern (!pattern), this file should NOT be ignored
-      // Otherwise, it should be ignored
-      ignored = !negated;
+  for (const arg of argv) {
+    if (arg === '--dry-run') {
+      result.dryRun = true;
+    } else if (arg.startsWith('--depth=')) {
+      const depthValue = parseInt(arg.split('=')[1] ?? '', 10);
+      if (!Number.isNaN(depthValue) && depthValue >= 0) {
+        result.maxDepth = depthValue;
+      } else {
+        console.warn(`Invalid depth value: "${arg}". Using unlimited depth.`);
+      }
+    } else if (arg.startsWith('--ignore=')) {
+      const pattern = arg.slice('--ignore='.length);
+      if (pattern) {
+        result.extraIgnorePatterns.push(pattern);
+      }
+    } else if (arg.startsWith('--')) {
+      const flagName = arg.includes('=') ? arg.slice(0, arg.indexOf('=')) : arg;
+      if (!KNOWN_FLAGS.some((known) => flagName === known)) {
+        console.warn(`Unknown flag: "${arg}". Ignoring.`);
+      }
+    } else {
+      result.outputPath = arg;
     }
   }
-  
-  return ignored;
+
+  return result;
+}
+
+function validateOutputPath(outputPath: string, root: string): string {
+  const resolved = resolve(root, outputPath);
+  if (!resolved.startsWith(root + sep)) {
+    throw new Error(`Output path "${outputPath}" resolves outside project root: ${resolved}`);
+  }
+  const resolvedDir = dirname(resolved);
+  if (resolvedDir !== root && !resolvedDir.startsWith(root + sep)) {
+    throw new Error(`Output directory "${resolvedDir}" is outside project root`);
+  }
+  return resolved;
+}
+
+async function loadIgnoreHandler(
+  root: string,
+  extraPatterns: string[],
+  outputFile: string,
+): Promise<Ignore> {
+  const ig = ignore();
+  ig.add(DEFAULT_IGNORE_PATTERNS);
+
+  if (extraPatterns.length > 0) {
+    ig.add(extraPatterns);
+  }
+
+  // Auto-ignore the output file so the generated artifact doesn't list itself
+  const outputRelative = relative(root, outputFile).split(sep).join(posix.sep);
+  ig.add(outputRelative);
+
+  try {
+    const gitignoreContent = await readFile(join(root, '.gitignore'), 'utf-8');
+    ig.add(gitignoreContent);
+  } catch (error: unknown) {
+    if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') {
+      console.warn(
+        'Info: No .gitignore file found at project root. Using default ignore patterns only.',
+      );
+    } else {
+      const msg = error instanceof Error ? error.message : String(error);
+      console.error(`Error reading .gitignore: ${msg}`);
+    }
+  }
+  return ig;
 }
 
 /**
- * Generates a tree representation of the directory structure
+ * A directory-only pattern (`/data/`, `.claude/`) matches only when the tested
+ * path carries the trailing slash too — `ignore` has no other way to tell a
+ * directory from a file of the same name. The caller holds the `Dirent`, so the
+ * flag is free.
+ */
+function isIgnored(entryPath: string, root: string, ig: Ignore, isDirectory: boolean): boolean {
+  const rel = relative(root, entryPath).split(sep).join(posix.sep);
+  return ig.ignores(isDirectory ? `${rel}/` : rel);
+}
+
+/**
+ * Recursively generates a string representation of the directory tree.
+ * Uses sequential traversal to avoid unbounded file-descriptor pressure.
+ * Tracks visited real paths to prevent symlink cycles.
  */
 async function generateTree(
-  dir: string, 
-  ignorePatterns: GitignorePattern[], 
-  prefix = '', 
-  isLast = true, 
-  relativePath = '', 
-  currentDepth = 0
+  dir: string,
+  root: string,
+  ig: Ignore,
+  maxDepth: number,
+  prefix = '',
+  currentDepth = 0,
+  visited = new Set<string>(),
 ): Promise<string> {
-  const entries = await fs.readdir(dir, { withFileTypes: true });
-  let output = '';
+  const resolvedDir = resolve(dir);
+  if (!resolvedDir.startsWith(root + sep) && resolvedDir !== root) {
+    console.warn(`Security: Skipping directory outside project root: ${resolvedDir}`);
+    return '';
+  }
 
-  // Filter and sort entries
+  if (currentDepth > maxDepth) {
+    return '';
+  }
+
+  // Resolve symlinks and detect cycles
+  let realDir: string;
+  try {
+    realDir = await realpath(resolvedDir);
+  } catch {
+    return '';
+  }
+  if (visited.has(realDir)) {
+    return '';
+  }
+  visited.add(realDir);
+
+  let entries: Dirent[];
+  try {
+    entries = await readdir(resolvedDir, { withFileTypes: true });
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error(`Error reading directory ${resolvedDir}: ${msg}`);
+    return '';
+  }
+
   const filteredEntries = entries
-    .filter(entry => {
-      const entryPath = path.join(relativePath, entry.name);
-      return !isIgnored(entryPath, ignorePatterns);
-    })
+    .filter((entry) => !isIgnored(join(resolvedDir, entry.name), root, ig, entry.isDirectory()))
     .sort((a, b) => {
-      // Directories first, then files
       if (a.isDirectory() && !b.isDirectory()) return -1;
       if (!a.isDirectory() && b.isDirectory()) return 1;
       return a.name.localeCompare(b.name);
     });
 
-  for (let i = 0; i < filteredEntries.length; i++) {
-    const entry = filteredEntries[i];
-    const isLastEntry = i === filteredEntries.length - 1;
-    const newPrefix = prefix + (isLast ? '    ' : '│   ');
-    const newRelativePath = path.join(relativePath, entry.name);
-    
-    output += prefix + (isLastEntry ? '└── ' : '├── ') + entry.name + '\n';
+  // Sequential traversal — prevents unbounded concurrent readdir calls
+  let result = '';
+  for (const [i, entry] of filteredEntries.entries()) {
+    const isLast = i === filteredEntries.length - 1;
+    const connector = isLast ? '\u2514\u2500\u2500 ' : '\u251C\u2500\u2500 ';
+    const newPrefix = prefix + (isLast ? '    ' : '\u2502   ');
+    const displayName = entry.isDirectory() ? `${entry.name}/` : entry.name;
 
-    // Only traverse deeper if we haven't reached maxDepth
-    if (entry.isDirectory() && currentDepth < maxDepth) {
-      output += await generateTree(
-        path.join(dir, entry.name),
-        ignorePatterns,
+    result += `${prefix + connector + displayName}\n`;
+
+    if (entry.isDirectory()) {
+      result += await generateTree(
+        join(resolvedDir, entry.name),
+        root,
+        ig,
+        maxDepth,
         newPrefix,
-        isLastEntry,
-        newRelativePath,
-        currentDepth + 1
+        currentDepth + 1,
+        visited,
       );
     }
   }
 
-  return output;
-}
-
-// Process command line arguments for custom configurations
-for (const arg of args) {
-  if (arg.startsWith('--depth=')) {
-    const depthValue = arg.split('=')[1];
-    const parsedDepth = parseInt(depthValue, 10);
-    
-    if (isNaN(parsedDepth) || parsedDepth < 1) {
-      console.error('Invalid depth value. Using unlimited depth.');
-      maxDepth = Infinity;
-    } else {
-      maxDepth = parsedDepth;
-    }
-  } else if (!arg.startsWith('--')) {
-    // If it's not an option flag, assume it's the output path
-    outputPath = arg;
-  }
+  return result;
 }
 
 /**
- * Main function to write the tree to a file
+ * Extracts the raw tree body from an existing output file for diffing.
+ * Returns null if the file doesn't exist or the tree block can't be parsed.
  */
-const writeTree = async (): Promise<void> => {
+async function readExistingTree(outputFile: string, projectName: string): Promise<string | null> {
+  let content: string;
   try {
-    const rootDir = process.cwd();
-    const projectName = path.basename(rootDir);
-    const ignorePatterns = await loadGitignorePatterns();
-    
-    console.log(`Generating directory tree for: ${projectName}`);
-    console.log(`Output path: ${outputPath}`);
-    if (maxDepth !== Infinity) {
-      console.log(`Maximum depth: ${maxDepth}`);
+    content = await readFile(outputFile, 'utf-8');
+  } catch (error: unknown) {
+    if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') return null;
+    const msg = error instanceof Error ? error.message : String(error);
+    console.warn(`Warning: Could not read existing output file for comparison: ${msg}`);
+    return null;
+  }
+
+  const escaped = projectName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const regex = new RegExp(
+    `^\\s*\`\`\`(?:[^\\n]*)\\n${escaped}/?\\n([\\s\\S]*?)\\n\`\`\`\\s*$`,
+    'm',
+  );
+  const match = content.match(regex);
+  return match && typeof match[1] === 'string' ? match[1] : null;
+}
+
+function buildOutputContent(projectName: string, treeContent: string, maxDepth: number): string {
+  const timestamp = new Date().toISOString().replace(/T/, ' ').replace(/\..+/, '');
+  const header = `# ${projectName} - Directory Structure\n\nGenerated on: ${timestamp}\n`;
+  const depthInfo = maxDepth !== Infinity ? `\n_Depth limited to ${maxDepth} levels_\n\n` : '\n';
+  const treeBlock = `\`\`\`text\n${projectName}/\n${treeContent}\`\`\`\n`;
+  const footer = `\n_Note: This tree excludes files and directories matched by .gitignore and default patterns._\n`;
+  return header + depthInfo + treeBlock + footer;
+}
+
+const normalize = (str: string | null) => str?.replace(/\r\n/g, '\n').trimEnd() ?? null;
+
+const generateDirectoryTree = async (): Promise<void> => {
+  try {
+    const root = process.cwd();
+    const args = process.argv.slice(2);
+
+    if (args.includes('--help')) {
+      console.log(`
+Generate Tree - Project directory structure visualization tool
+
+Usage:
+  bun run scripts/tree.ts [output-path] [options]
+
+Options:
+  output-path        Custom file path for the tree output (relative to project root, default: docs/tree.md)
+  --depth=<number>   Maximum directory depth to display (default: unlimited)
+  --ignore=<pattern> Additional ignore pattern (can be specified multiple times)
+  --dry-run          Print tree to stdout without writing to disk
+  --help             Show this help message
+`);
+      process.exit(0);
     }
-    
-    // Generate the tree structure
-    const treeContent = await generateTree(rootDir, ignorePatterns, '', true, '', 0);
-    
-    // Ensure output directory exists
-    const outputDir = path.dirname(path.resolve(rootDir, outputPath));
-    try {
-      await fs.access(outputDir);
-    } catch {
-      console.log(`Creating directory: ${outputDir}`);
-      await fs.mkdir(outputDir, { recursive: true });
-    }
 
-    // Write tree to file
-    const timestamp = new Date().toISOString().replace(/T/, ' ').replace(/\..+/, '');
-    
-    const content = `# ${projectName} - Directory Structure
-
-Generated on: ${timestamp}
-
-${maxDepth !== Infinity ? `_Depth limited to ${maxDepth} levels_\n\n` : ''}
-\`\`\`
-${projectName}
-${treeContent}
-\`\`\`
-
-_Note: This tree excludes files and directories matched by .gitignore and common patterns like node_modules._
-`;
-
-    await fs.writeFile(
-      path.resolve(rootDir, outputPath),
-      content
+    const parsed = parseArgs(args);
+    const projectName = basename(root);
+    const resolvedOutputFile = validateOutputPath(parsed.outputPath, root);
+    const ignoreHandler = await loadIgnoreHandler(
+      root,
+      parsed.extraIgnorePatterns,
+      resolvedOutputFile,
     );
-    
-    console.log(`✓ Successfully generated tree structure in ${outputPath}`);
-  } catch (error) {
-    console.error(`× Error generating tree: ${error instanceof Error ? error.message : error}`);
+
+    console.log(`Generating directory tree for project: ${projectName}`);
+    if (!parsed.dryRun) {
+      console.log(`Output will be saved to: ${resolvedOutputFile}`);
+    }
+    if (parsed.maxDepth !== Infinity) {
+      console.log(`Maximum depth set to: ${parsed.maxDepth}`);
+    }
+    if (parsed.extraIgnorePatterns.length > 0) {
+      console.log(`Additional ignore patterns: ${parsed.extraIgnorePatterns.join(', ')}`);
+    }
+
+    const treeContent = await generateTree(root, root, ignoreHandler, parsed.maxDepth);
+
+    if (parsed.dryRun) {
+      console.log(`\n${projectName}/`);
+      process.stdout.write(treeContent);
+      return;
+    }
+
+    const existingTree = await readExistingTree(resolvedOutputFile, projectName);
+
+    if (normalize(existingTree) === normalize(treeContent)) {
+      console.log(
+        `Directory structure is unchanged. Output file not updated: ${resolvedOutputFile}`,
+      );
+      return;
+    }
+
+    await mkdir(dirname(resolvedOutputFile), { recursive: true });
+    await writeFile(
+      resolvedOutputFile,
+      buildOutputContent(projectName, treeContent, parsed.maxDepth),
+    );
+    console.log(`Successfully generated and updated tree structure in: ${resolvedOutputFile}`);
+  } catch (error: unknown) {
+    console.error(
+      `Error generating tree: ${error instanceof Error ? error.message : String(error)}`,
+    );
     process.exit(1);
   }
 };
 
-// Execute the write tree function
-writeTree();
+void generateDirectoryTree();
