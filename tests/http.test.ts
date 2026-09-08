@@ -1,6 +1,7 @@
 /** tests/http.test.ts — Real loopback HTTP verifies modern and legacy SDK serving. */
 import { expect, test } from 'bun:test';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createMcpHandler, Server } from '@modelcontextprotocol/server';
@@ -148,3 +149,73 @@ test('HTTP discovery timeout is a failure rather than a legacy fallback', async 
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+for (const stall of ['headers', 'body'] as const) {
+  test(`HTTP initialized notification timeout aborts stalled ${stall} and continues reporting`, async () => {
+    let releaseTimer: ReturnType<typeof setTimeout> | undefined;
+    let fixtureReleased = false;
+    const { promise: notificationClosed, resolve: markClosed } = Promise.withResolvers<void>();
+    const http = createServer(async (request, response) => {
+      if (request.method !== 'POST') {
+        response.writeHead(405).end();
+        return;
+      }
+      let body = '';
+      for await (const chunk of request) body += chunk;
+      const message = JSON.parse(body);
+      if (message.method === 'initialize') {
+        response.writeHead(200, { 'content-type': 'application/json' }).end(
+          JSON.stringify({
+            jsonrpc: '2.0',
+            id: message.id,
+            result: {
+              protocolVersion: message.params.protocolVersion,
+              serverInfo: { name: 'timeout-fixture', version: '1' },
+              capabilities: {},
+            },
+          }),
+        );
+      } else if (request.url === '/stalled') {
+        response.on('close', markClosed);
+        if (stall === 'body') {
+          response.writeHead(202, { 'content-type': 'text/plain' });
+          response.flushHeaders();
+          response.write('unfinished');
+        }
+        releaseTimer = setTimeout(() => {
+          fixtureReleased = true;
+          response.end();
+        }, 1000);
+      } else response.writeHead(202).end();
+    });
+    await new Promise<void>((resolve) => http.listen(0, '127.0.0.1', resolve));
+    const address = http.address();
+    if (!address || typeof address === 'string') throw new Error('Expected loopback TCP address');
+    const dir = await mkdtemp(join(tmpdir(), 'mcp-reporter-initialized-timeout-'));
+    try {
+      const config = join(dir, 'config.json');
+      const outputPath = join(dir, 'report.md');
+      await writeFile(
+        config,
+        JSON.stringify({
+          mcpServers: {
+            stalled: { url: `http://127.0.0.1:${address.port}/stalled` },
+            healthy: { url: `http://127.0.0.1:${address.port}/healthy` },
+          },
+        }),
+      );
+      await new McpReporter(config, { outputPath, timeoutMs: 50 }).run();
+      const report = await readFile(outputPath, 'utf8');
+      expect(report).toContain('Connection Failures');
+      expect(report.replaceAll('\\', '')).toContain('REQUEST_TIMEOUT');
+      expect(report).toContain('## healthy');
+      await notificationClosed;
+      expect(fixtureReleased).toBe(false);
+    } finally {
+      clearTimeout(releaseTimer);
+      http.closeAllConnections();
+      await new Promise<void>((resolve) => http.close(() => resolve()));
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+}

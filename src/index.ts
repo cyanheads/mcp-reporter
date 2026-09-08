@@ -7,6 +7,7 @@ import {
   InsufficientScopeError,
   ProtocolError,
   SdkError,
+  SdkErrorCode,
   SdkHttpError,
   StreamableHTTPClientTransport,
   UnauthorizedError,
@@ -119,7 +120,23 @@ export class McpReporter {
               cwd: config.cwd,
               stderr: 'ignore',
             });
-      await client.connect(transport, { timeout: this.options.timeoutMs });
+      const connection = client.connect(transport, { timeout: this.options.timeoutMs });
+      if (config.url !== undefined) {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          // SDK request timeouts exclude the initialized notification and its response body.
+          await Promise.race([
+            connection,
+            new Promise<never>((_, reject) => {
+              timer = setTimeout(() => {
+                reject(new SdkError(SdkErrorCode.RequestTimeout, 'HTTP connection timed out.'));
+              }, this.options.timeoutMs);
+            }),
+          ]);
+        } finally {
+          clearTimeout(timer);
+        }
+      } else await connection;
       server.connected = true;
       server.connectionTime = Math.round(performance.now() - start);
       server.implementation = client.getServerVersion();
