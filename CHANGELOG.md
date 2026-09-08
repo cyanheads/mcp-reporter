@@ -2,6 +2,10 @@
 
 All notable changes to this project. Each entry links to its full per-version file in [changelog/](changelog/).
 
+## [1.1.2](changelog/1.1.x/1.1.2.md) — 2026-09-08
+
+Reuse the server configuration schema and collect changelog entries once per run.
+
 ## [1.1.1](changelog/1.1.x/1.1.1.md) — 2026-09-08
 
 Bound the complete HTTP handshake by timeoutMs so stalled initialized responses cannot block remaining servers or report generation.

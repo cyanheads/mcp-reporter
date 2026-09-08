@@ -24,6 +24,7 @@ const http = z.object({
   env: z.never().optional(),
   cwd: z.never().optional(),
 });
+const serverConfig = z.union([stdio, http]);
 const envelope = z.object({
   mcpServers: z.custom<Record<string, unknown>>(
     (value) => typeof value === 'object' && value !== null && !Array.isArray(value),
@@ -35,7 +36,7 @@ export function parseConfig(value: unknown): McpServersConfig {
   if (!root.success) throw new Error('Configuration must contain a mcpServers object.');
   const mcpServers: McpServersConfig['mcpServers'] = {};
   for (const [id, entry] of Object.entries(root.data.mcpServers)) {
-    const parsed = z.union([stdio, http]).safeParse(entry);
+    const parsed = serverConfig.safeParse(entry);
     if (!parsed.success)
       throw new Error(
         `Invalid configuration for server ${JSON.stringify(id)}: supply either command with optional args/env/cwd, or an HTTP(S) url with optional headers; type must match the transport.`,
