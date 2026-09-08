@@ -1,183 +1,199 @@
-# MCP Reporter
+<div align="center">
+  <h1>mcp-reporter</h1>
+  <p><b>See what your MCP servers advertise.</b></p>
+  <p>Generate a Markdown catalog of tools, resources, prompts, schemas, and server metadata.</p>
+</div>
 
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.8-blue.svg)](https://www.typescriptlang.org/)
-[![Model Context Protocol](https://img.shields.io/badge/MCP-1.7.0-green.svg)](https://modelcontextprotocol.io/)
-[![Version](https://img.shields.io/badge/Version-1.0.1-blue.svg)]()
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Status](https://img.shields.io/badge/Status-Stable-green.svg)]()
-[![GitHub](https://img.shields.io/github/stars/cyanheads/mcp-reporter?style=social)](https://github.com/cyanheads/mcp-reporter)
+<div align="center">
 
-MCP Reporter is a utility for generating comprehensive reports about Model Context Protocol (MCP) server capabilities, helping developers understand what functionality is available across their MCP server ecosystem. Can also be used programmatically to generate reports for documentation or for feeding into other tools.
+[![Version](https://img.shields.io/badge/Version-1.1.0-blue.svg?style=flat-square)](./CHANGELOG.md) [![License](https://img.shields.io/badge/License-Apache%202.0-orange.svg?style=flat-square)](./LICENSE) [![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A522.12.0-339933.svg?style=flat-square)](https://nodejs.org/) [![MCP SDK](https://img.shields.io/badge/MCP%20SDK-2.0.0-8A2BE2.svg?style=flat-square)](https://github.com/modelcontextprotocol/typescript-sdk)
 
-## Table of Contents
+[Quick start](#quick-start) · [Configuration](#configuration) · [Report contents](#report-contents) · [Library](#use-as-a-library) · [Development](#development)
 
-- [Features](#features)
-- [Installation](#installation)
-- [Configuration](#configuration)
-- [Usage](#usage)
-- [Report Structure](#report-structure)
-- [Project Structure](#project-structure)
-- [Example Report](#example-report)
-- [Development](#development)
-- [License](#license)
-- [Author](#author)
+</div>
 
-## Features
+---
 
-- **Server Discovery**: Automatically connects to all enabled MCP servers
-- **Capability Analysis**: Extracts tools, resources, and resource templates
-- **Markdown Report Generation**: Produces well-organized documentation
-- **Progress Monitoring**: Provides real-time feedback during execution
+`mcp-reporter` connects to local stdio processes and remote Streamable HTTP endpoints, reads their advertised capabilities, and writes a report you can keep alongside project documentation or pass to another tool.
 
-# Image Preview of Generated Report (Partial)
+It enumerates tools, resources, resource templates, and prompts. It does not execute tools, read resource contents, or expand prompts. [View a synthetic example report.](docs/example-report.md)
 
-![Image Preview](assets/preview-image.png)
+## Quick start
 
-## Installation
+Requires **Node.js 22.12 or newer**. Development uses **Bun 1.4 or newer**.
 
-### Prerequisites
-
-- Node.js 16.x or higher
-- npm or yarn
-
-### Install from Source
-
-```bash
-# Clone the repository
-git clone https://github.com/cyanheads/mcp-reporter.git
-cd mcp-reporter
-
-# Install dependencies
-npm install
-
-# Build the project
-npm run build
-
-# Create a symlink (optional)
-npm link
-```
-
-## Configuration
-
-MCP Reporter requires a configuration file that defines the MCP servers you want to analyze:
-
-```bash
-# Create a configuration file from the example
-cp mcp-servers.json.example mcp-servers.json
-```
-
-Example configuration:
+Create `mcp-servers.json` with a server you already run:
 
 ```json
 {
   "mcpServers": {
-    "atlas-mcp-server": {
-      "command": "/path/to/node",
-      "args": ["/path/to/atlas-mcp-server/dist/index.js"],
-      "env": {
-        "NEO4J_URI": "bolt://localhost:7687",
-        "NEO4J_USER": "neo4j",
-        "NEO4J_PASSWORD": "your-password-here"
-      }
-    },
-    "another-server": {
-      "command": "/path/to/node",
-      "args": ["/path/to/another-server.js"],
-      "env": {}
+    "local-server": {
+      "command": "node",
+      "args": ["/absolute/path/to/server/dist/index.js"]
     }
   }
 }
 ```
 
-## Usage
-
-### Command Line Interface
+Generate a report:
 
 ```bash
-mcp-reporter [options]
+npx mcp-reporter --config mcp-servers.json --output output/report.md
 ```
 
-| Option                | Description                | Default                       |
-| --------------------- | -------------------------- | ----------------------------- |
-| `-c, --config <path>` | Path to MCP servers config | `mcp-servers.json`            |
-| `-o, --output <path>` | Output path for report     | `output/mcp_server_report.md` |
-| `-s, --schemas`       | Include input schemas      | `true`                        |
-| `-m, --metadata`      | Include server metadata    | `true`                        |
-| `-e, --examples`      | Include examples           | `true`                        |
+## Configuration
 
-### Examples
+The configuration is a JSON object containing `mcpServers`. Each key identifies a server in the report. Local and remote entries can share one file:
 
-You can run mcp-reporter either via 'npm run start' or by using the symlink (optional) created during installation:
-
-```bash
-# Generate a report with default settings
-npm run start
-
-# Generate a report using symlink
-mcp-reporter
-```
-
-### Programmatic Usage
-
-```javascript
-import { McpReporter } from "mcp-reporter";
-
-async function generateReport() {
-  const reporter = new McpReporter("./my-config.json", {
-    outputPath: "./reports/mcp-report.md",
-    includeInputSchemas: true,
-    includeServerMetadata: true,
-  });
-
-  await reporter.run();
+```json
+{
+  "mcpServers": {
+    "local-server": {
+      "command": "node",
+      "args": ["/absolute/path/to/server/dist/index.js"],
+      "env": { "EXAMPLE_API_KEY": "REPLACE_WITH_YOUR_KEY" }
+    },
+    "remote-server": {
+      "type": "http",
+      "url": "https://example.com/mcp",
+      "headers": { "Authorization": "Bearer REPLACE_WITH_YOUR_TOKEN" }
+    },
+    "disabled-server": {
+      "command": "node",
+      "args": ["/absolute/path/to/another/server.js"],
+      "disabled": true
+    }
+  }
 }
-
-generateReport().catch(console.error);
 ```
 
-## Report Structure
+| Field | Applies to | Meaning |
+| --- | --- | --- |
+| `command` | stdio | Executable to spawn |
+| `args` | stdio | Optional argument array |
+| `env` | stdio | Optional string-valued environment entries, passed to the SDK transport |
+| `cwd` | stdio | Optional working directory for the child process |
+| `url` | HTTP | Streamable HTTP endpoint, including its MCP path |
+| `headers` | HTTP | Optional static request headers |
+| `type` | Either | Optional `stdio` or `http`; must agree with the entry |
+| `disabled` | Either | Skip the entry when `true` |
+| `alwaysAllow` | Either | Accepted for config compatibility; no tools are invoked |
 
-The generated markdown report includes:
+Supply exactly one of `command` or `url`. The reporter validates the entire file before connecting. Paths are resolved from the process working directory; use absolute paths when sharing a configuration between callers. Interactive OAuth and legacy SSE endpoints are not supported.
 
-1. Summary of all MCP servers analyzed
-2. For each server:
-   - Server metadata
-   - Available tools with descriptions and input schemas
-   - Available resources with URIs and descriptions
-   - Available resource templates with URI templates
+Configuration values can contain credentials. The reporter omits env/header values, raw command arguments, and URL paths/query/userinfo from its diagnostics and launch metadata. Child stderr is suppressed; failures use safe error categories. Server-provided descriptions, schemas, instructions, and extension metadata are retained as report content, so review those before sharing a report.
 
-## Project Structure
+## Choose a protocol mode
 
+Legacy negotiation is the default, preserving compatibility with servers that expect `initialize`.
+
+| `--protocol-era` | Behavior |
+| --- | --- |
+| `legacy` | Use the legacy handshake without a discovery probe |
+| `auto` | Discover modern support, falling back on legacy evidence |
+| `2026-07-28` | Require that modern revision; no legacy fallback |
+
+```bash
+npx mcp-reporter --config mcp-servers.json --protocol-era auto
 ```
-mcp-reporter/
-├── src/               # Source code
-│   ├── cli.ts         # Command line interface
-│   ├── index.ts       # Main library code
-│   ├── types/         # TypeScript type definitions
-│   └── utils/         # Utility functions
-├── scripts/           # Build and maintenance scripts
-├── docs/              # Documentation
-├── output/            # Default output directory for reports
-└── mcp-servers.json   # Server configuration (create from example)
+
+Auto mode can start an extra short-lived stdio process and wait for a probe timeout before using the legacy handshake. HTTP authorization failures and timeouts are reported as failures, not evidence of legacy support. The report records the actual selected protocol version and era.
+
+## Report contents
+
+| Section | Included information |
+| --- | --- |
+| Executive summary | Connection counts and collected capability counts |
+| Connection failures | Configured server ID and safe failure reason |
+| Server information | Transport, implementation identity, negotiated protocol, connection time, advertised flags, instructions |
+| Tools | Names, titles, descriptions, input/output schemas, annotations, icons and extension metadata |
+| Resources and templates | URIs/templates, names, descriptions, MIME types and supplied metadata |
+| Prompts | Names, descriptions, arguments, required flags and supplied metadata |
+
+Lists are collected page by page. Each capability is reported as **not advertised**, **complete** (possibly empty), or **incomplete**. Page limits, repeated cursors and request failures keep collected entries and mark their counts as partial. A failed server or list does not discard successful neighbors.
+
+Tables and text carry the report; collapsible details hold longer definitions. Icons remain metadata rather than remote image loads. Server annotations are hints supplied by the server, not independently verified safety guarantees. Enumeration retains advertisements even when a client might refuse to call a tool with an invalid schema extension.
+
+## CLI options
+
+| Option | Default | Purpose |
+| --- | --- | --- |
+| `-c, --config <path>` | `mcp-servers.json` | Configuration file |
+| `-o, --output <path>` | `output/mcp_server_report.md` | Markdown destination |
+| `--no-schemas` | Schemas included | Hide input schemas; output schemas remain visible |
+| `--no-metadata` | Metadata included | Hide server information, advertised flags and instructions |
+| `--no-examples` | Examples included | Hide caller-supplied examples |
+| `--protocol-era <era>` | `legacy` | `legacy`, `auto`, or `2026-07-28` |
+| `--max-pages <count>` | `64` | Positive page bound for each capability list |
+| `--timeout <ms>` | `30000` | Positive connection/request timeout |
+| `-q, --quiet` | Off | Suppress progress; fatal errors still go to stderr |
+| `-V, --version` | — | Print package version |
+| `-h, --help` | — | Print help |
+
+Existing positive flags `-s/--schemas`, `-m/--metadata`, and `-e/--examples` remain accepted. MCP enumeration has no examples source; examples appear only when a programmatic caller supplies them to the renderer.
+
+Progress goes to stderr, and the report is written to the selected file. Exit code `0` means the report was written, including any recorded connection/list failures. Invalid configuration or a report-write failure exits `1`.
+
+## Use as a library
+
+```bash
+bun add mcp-reporter
 ```
+
+```ts
+import { McpReporter } from 'mcp-reporter';
+
+const reporter = new McpReporter('./mcp-servers.json', {
+  outputPath: './output/capabilities.md',
+  protocolEra: 'auto',
+  includeInputSchemas: true,
+  includeServerMetadata: true,
+  maxPages: 64,
+  timeoutMs: 30_000,
+  progressCallback(event) {
+    console.error(event.message);
+  },
+});
+
+await reporter.run();
+```
+
+The library is ESM and stays quiet without a progress callback. `run()` resolves after writing the report and closing connections; it rejects configuration/file errors. A second run starts a fresh collection. `ReportOptions.transportFactory(config, serverId)` can supply a transport for embedding or deterministic tests.
+
+Types are exported from the package root. To render an already collected `ServerReport[]`, import `MarkdownGenerator` from `mcp-reporter` and call `generateReport(reports, options)`. It honors the same rendering flags and preserves optional `ToolInfo.examples` supplied by the caller.
+
+See [upgrading to 1.1.0](docs/upgrading.md) for runtime, module, and reporting changes.
 
 ## Development
 
+Build a source checkout:
+
 ```bash
-# Clean build artifacts
-npm run clean
-
-# Rebuild the project
-npm run rebuild
-
-# Generate project structure visualization
-npm run tree
+git clone https://github.com/cyanheads/mcp-reporter.git
+cd mcp-reporter
+bun install
+bun run rebuild
 ```
 
-## License
+Run the built CLI with `node dist/cli.js --config mcp-servers.json`.
 
-This project is licensed under the Apache 2.0 License - see the LICENSE file for details.
+| Command | Purpose |
+| --- | --- |
+| `bun run devcheck` | Lint, source/script/test typechecks, changelog check, full test suite |
+| `bun run rebuild` | Clean and compile the Node package |
+| `bun run test:all` | Run deterministic behavior tests |
+| `bun run test:package` | Verify compiled Node CLI/library and package contents |
+| `bun run format` | Apply Biome formatting and safe fixes |
+| `bun run example:report` | Regenerate the synthetic example report |
+| `bun run tree` | Regenerate the [directory map](docs/tree.md) |
+| `bun run list-skills` | List [project workflows](skills/README.md) |
 
-## Author
+Tests use in-memory SDK servers, loopback HTTP and synthetic stdio processes. They need no credentials or external MCP servers. Release workflows use local gates, per-version changelogs, conventional commits and annotated tag digests; npm and GitHub are the publication targets.
 
-Casey Hand (@cyanheads)
+[Contributing](.github/CONTRIBUTING.md) · [Security](.github/SECURITY.md) · [Changelog](CHANGELOG.md) · [Apache-2.0 license](LICENSE)
+
+<div align="center">
+
+Built by [Casey Hand](https://caseyjhand.com) · [Support the project](https://github.com/sponsors/cyanheads)
+
+</div>
