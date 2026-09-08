@@ -1,437 +1,263 @@
-/**
- * MCP Server Capability Reporter
- * 
- * A tool for connecting to MCP servers and generating reports about their capabilities
- */
-
-import * as fs from 'fs/promises';
-import * as path from 'path';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { 
-  McpServersConfig, 
-  ServerInfo, 
-  ServerReport, 
-  ReportOptions,
+/** src/index.ts — Connect to MCP servers and collect complete capability reports. */
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { dirname } from 'node:path';
+import type { Transport } from '@modelcontextprotocol/client';
+import {
+  Client,
+  InsufficientScopeError,
+  ProtocolError,
+  SdkError,
+  SdkHttpError,
+  StreamableHTTPClientTransport,
+  UnauthorizedError,
+} from '@modelcontextprotocol/client';
+import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
+import { parseConfig } from './config.js';
+import { isEntryPoint } from './is-entry-point.js';
+import type {
   ProgressEvent,
-  ProgressCallback
-} from './types';
-import { ProgressReporter } from './utils/progress';
-import { MarkdownGenerator } from './utils/markdown';
+  ReportOptions,
+  ServerCapabilities,
+  ServerInfo,
+  ServerReport,
+} from './types/index.js';
+import { MarkdownGenerator } from './utils/markdown.js';
+import { VERSION } from './version.js';
 
-// Set default options for report generation
-const DEFAULT_OPTIONS: ReportOptions = {
+export type * from './types/index.js';
+export { MarkdownGenerator };
+
+const DEFAULT_OPTIONS = {
   outputPath: './output/mcp_server_report.md',
   includeInputSchemas: true,
   includeServerMetadata: true,
   includeExamples: true,
-  progressCallback: (event: ProgressEvent) => ProgressReporter.processProgressEvent(event)
-};
+  protocolEra: 'legacy',
+  maxPages: 64,
+  timeoutMs: 30000,
+} satisfies ReportOptions;
 
-/**
- * MCP Server Capability Reporter
- * Connects to MCP servers and generates reports of their capabilities
- */
+/** Error text from a peer or child can contain credentials; expose only stable classifications. */
+function diagnostic(error: unknown): string {
+  if (error instanceof InsufficientScopeError)
+    return 'Authorization failed: the configured credentials lack the required scope.';
+  if (error instanceof UnauthorizedError)
+    return 'Authorization required; check the configured credentials.';
+  if (error instanceof SdkHttpError)
+    return `HTTP ${error.status} (${error.code}); check endpoint access and configured authorization.`;
+  if (error instanceof ProtocolError) return `MCP request failed (JSON-RPC ${error.code}).`;
+  if (error instanceof SdkError) return `MCP connection or request failed (${error.code}).`;
+  if (error instanceof Error && 'code' in error && error.code === 'ENOENT')
+    return 'Executable not found; check the configured command and PATH.';
+  return 'Connection or request failed; check the server configuration and availability.';
+}
+
+/** Collect server definitions without invoking tools, reading resources, or rendering prompts. */
 export class McpReporter {
-  private options: ReportOptions;
-  private configPath: string;
+  private readonly options;
   private servers: ServerInfo[] = [];
-  private reports: ServerReport[] = [];
-  
-  /**
-   * Create a new MCP Reporter
-   * 
-   * @param configPath Path to the MCP servers configuration file
-   * @param options Options for report generation
-   */
-  constructor(configPath: string, options: Partial<ReportOptions> = {}) {
-    this.configPath = configPath;
+  constructor(
+    private readonly configPath: string,
+    options: Partial<ReportOptions> = {},
+  ) {
     this.options = { ...DEFAULT_OPTIONS, ...options };
+    if (!Number.isSafeInteger(this.options.maxPages) || this.options.maxPages < 1)
+      throw new Error('maxPages must be a positive integer.');
+    if (!Number.isSafeInteger(this.options.timeoutMs) || this.options.timeoutMs < 1)
+      throw new Error('timeoutMs must be a positive integer.');
+    if (!['legacy', 'auto', '2026-07-28'].includes(this.options.protocolEra))
+      throw new Error('protocolEra must be legacy, auto, or 2026-07-28.');
   }
-  
-  /**
-   * Report progress event
-   */
-  private reportProgress(event: ProgressEvent): void {
-    if (this.options.progressCallback) {
-      this.options.progressCallback(event);
-    }
+  private progress(event: ProgressEvent): void {
+    this.options.progressCallback?.(event);
   }
-  
-  /**
-   * Read and parse the MCP servers configuration
-   */
+  /** Validate configuration and skip explicitly disabled servers. */
   public async readConfig(): Promise<void> {
+    let value: unknown;
+    const text = await readFile(this.configPath, 'utf8');
     try {
-      this.reportProgress({
-        stage: 'init',
-        message: 'Reading MCP server configuration'
-      });
-      
-      const fileContent = await fs.readFile(this.configPath, 'utf-8');
-      const config = JSON.parse(fileContent) as McpServersConfig;
-      
-      // Create server info objects
-      this.servers = Object.entries(config.mcpServers)
-        .filter(([_, serverConfig]) => !serverConfig.disabled)
-        .map(([id, serverConfig]) => ({
-          id,
-          name: id,
-          config: serverConfig,
-          connected: false
-        }));
-      
-      this.reportProgress({
-        stage: 'init',
-        message: `Found ${this.servers.length} enabled MCP servers`
-      });
-    } catch (error) {
-      this.reportProgress({
-        stage: 'error',
-        message: 'Failed to read MCP server configuration',
-        error: error as Error
-      });
-      throw error;
+      value = JSON.parse(text);
+    } catch {
+      throw new Error('Configuration is not valid JSON.');
     }
+    this.servers = Object.entries(parseConfig(value).mcpServers)
+      .filter(([, config]) => !config.disabled)
+      .map(([id, config]) => ({ id, name: id, config, connected: false }));
+    this.progress({ stage: 'init', message: `Found ${this.servers.length} enabled MCP servers` });
   }
-  
-  /**
-   * Connect to an MCP server
-   */
-  private async connectToServer(server: ServerInfo): Promise<void> {
+  private async connect(server: ServerInfo): Promise<void> {
+    let transport: Transport | undefined;
+    const mode = this.options.protocolEra;
+    const client = new Client(
+      { name: 'mcp-reporter', version: VERSION },
+      {
+        capabilities: {},
+        ...(mode === 'legacy'
+          ? {}
+          : { versionNegotiation: { mode: mode === 'auto' ? 'auto' : { pin: mode } } }),
+      },
+    );
+    server.client = client;
+    this.progress({
+      stage: 'connecting',
+      serverId: server.id,
+      message: `Connecting to ${server.id}`,
+    });
+    const start = performance.now();
     try {
-      this.reportProgress({
-        stage: 'connecting',
-        serverId: server.id,
-        message: `Connecting to ${server.id}`
-      });
-      
-      // Debug info
-      console.log(`DEBUG: Trying to connect to ${server.id}`);
-      console.log(`DEBUG: Command: ${server.config.command}`);
-      console.log(`DEBUG: Args: ${JSON.stringify(server.config.args)}`);
-      console.log(`DEBUG: Working directory: ${process.cwd()}`);
-      console.log(`DEBUG: Environment variables: ${JSON.stringify(server.config.env || {})}`);
-      
-      const startTime = Date.now();
-      
-      // Create client with stdio transport
-      const client = new Client(
-        {
-          name: 'mcp-reporter',
-          version: '1.0.0'
-        },
-        {
-          capabilities: {
-            resources: {},
-            tools: {}
-          }
-        }
-      );
-      
-      // Create transport
-      const transport = new StdioClientTransport({
-        command: server.config.command,
-        args: server.config.args,
-        env: server.config.env
-      });
-      
-      // Connect to server
-      await client.connect(transport);
-      
-      // Update server info
-      server.client = client;
+      const config = server.config;
+      transport = this.options.transportFactory
+        ? await this.options.transportFactory(config, server.id)
+        : config.url !== undefined
+          ? new StreamableHTTPClientTransport(new URL(config.url), {
+              requestInit: { headers: config.headers, redirect: 'error' },
+            })
+          : new StdioClientTransport({
+              command: config.command,
+              args: config.args,
+              env: config.env,
+              cwd: config.cwd,
+              stderr: 'ignore',
+            });
+      await client.connect(transport, { timeout: this.options.timeoutMs });
       server.connected = true;
-      
-      const connectionTime = Date.now() - startTime;
-      
-      this.reportProgress({
-        stage: 'complete',
-        serverId: server.id,
-        message: `Connected to ${server.id} (${connectionTime}ms)`
-      });
-      
-      return;
+      server.connectionTime = Math.round(performance.now() - start);
+      server.implementation = client.getServerVersion();
+      server.protocolVersion = client.getNegotiatedProtocolVersion();
+      server.protocolEra = client.getProtocolEra();
+      server.advertisedCapabilities = client.getServerCapabilities();
+      server.instructions = client.getInstructions();
     } catch (error) {
-      console.error(`DEBUG: Connection error for ${server.id}:`, error);
-      server.error = (error as Error).message;
-      this.reportProgress({
-        stage: 'error',
-        serverId: server.id,
-        message: `Failed to connect to ${server.id}`,
-        error: error as Error
+      server.error = diagnostic(error);
+      this.progress({ stage: 'error', serverId: server.id, message: server.error });
+      await transport?.close().catch((error) => {
+        this.progress({
+          stage: 'error',
+          serverId: server.id,
+          message: `Transport cleanup failed: ${diagnostic(error)}`,
+        });
       });
     }
   }
-  
-  /**
-   * Fetch capabilities from a connected server
-   */
-  private async fetchServerCapabilities(server: ServerInfo): Promise<ServerReport> {
-    const report: ServerReport = {
-      ...server,
-      capabilities: {
-        tools: [],
-        resources: [],
-        resourceTemplates: []
-      }
+  private async collect(server: ServerInfo): Promise<ServerReport> {
+    const capabilities: Required<ServerCapabilities> = {
+      tools: [],
+      resources: [],
+      resourceTemplates: [],
+      prompts: [],
     };
-    
-    if (!server.connected || !server.client) {
-      return report;
+    const capabilityStatus: NonNullable<ServerReport['capabilityStatus']> = {};
+    const report: ServerReport = { ...server, capabilities, capabilityStatus };
+    if (!server.connected || !server.client) return report;
+    const client = server.client;
+    const requests = {
+      tools: async (cursor?: string) => {
+        const page = await client.request(
+          { method: 'tools/list', params: cursor === undefined ? {} : { cursor } },
+          { timeout: this.options.timeoutMs },
+        );
+        capabilities.tools.push(...page.tools);
+        return page.nextCursor;
+      },
+      resources: async (cursor?: string) => {
+        const page = await client.request(
+          { method: 'resources/list', params: cursor === undefined ? {} : { cursor } },
+          { timeout: this.options.timeoutMs },
+        );
+        capabilities.resources.push(...page.resources);
+        return page.nextCursor;
+      },
+      resourceTemplates: async (cursor?: string) => {
+        const page = await client.request(
+          { method: 'resources/templates/list', params: cursor === undefined ? {} : { cursor } },
+          { timeout: this.options.timeoutMs },
+        );
+        capabilities.resourceTemplates.push(...page.resourceTemplates);
+        return page.nextCursor;
+      },
+      prompts: async (cursor?: string) => {
+        const page = await client.request(
+          { method: 'prompts/list', params: cursor === undefined ? {} : { cursor } },
+          { timeout: this.options.timeoutMs },
+        );
+        capabilities.prompts.push(...page.prompts);
+        return page.nextCursor;
+      },
+    };
+    for (const key of ['tools', 'resources', 'resourceTemplates', 'prompts'] as const) {
+      const advertised = key === 'resourceTemplates' ? 'resources' : key;
+      if (!server.advertisedCapabilities?.[advertised]) {
+        capabilityStatus[key] = { state: 'not-advertised' };
+        continue;
+      }
+      this.progress({
+        stage: 'fetching',
+        serverId: server.id,
+        message: `Fetching ${key} from ${server.id}`,
+      });
+      let cursor: string | undefined;
+      const seen = new Set<string>();
+      try {
+        for (let pageNumber = 0; ; pageNumber++) {
+          if (pageNumber === this.options.maxPages) {
+            capabilityStatus[key] = {
+              state: 'incomplete',
+              error: `Page limit reached (${this.options.maxPages}); collected entries are partial.`,
+            };
+            break;
+          }
+          cursor = await requests[key](cursor);
+          if (cursor === undefined) {
+            capabilityStatus[key] = { state: 'complete' };
+            break;
+          }
+          if (seen.has(cursor)) {
+            capabilityStatus[key] = {
+              state: 'incomplete',
+              error: 'Repeated pagination cursor; collected entries are partial.',
+            };
+            break;
+          }
+          seen.add(cursor);
+        }
+      } catch (error) {
+        capabilityStatus[key] = { state: 'incomplete', error: diagnostic(error) };
+      }
     }
-    
-    try {
-      // Fetch tools
-      this.reportProgress({
-        stage: 'fetching',
-        serverId: server.id,
-        message: `Fetching tools from ${server.id}`
-      });
-      
-      try {
-        const tools = await server.client.listTools();
-        // Convert the tools response to our internal ToolInfo type
-        report.capabilities.tools = (tools?.tools || []).map(tool => ({
-          name: tool.name,
-          description: tool.description,
-          inputSchema: tool.inputSchema
-        }));
-      } catch (toolError) {
-        // Only log if it's not the expected "Method not found" error
-        if (!(toolError instanceof Error && 
-              toolError.name === 'McpError' && 
-              toolError.message.includes('Method not found'))) {
-          console.error(`DEBUG: Error fetching tools from ${server.id}:`, toolError);
-        }
-        // Tools are expected - failure is worth logging as unusual
-      }
-      
-      // Fetch resources      
-      this.reportProgress({
-        stage: 'fetching',
-        serverId: server.id,
-        message: `Fetching resources from ${server.id}`
-      });
-      
-      try {
-        const resources = await server.client.listResources();
-        report.capabilities.resources = resources?.resources || [];
-      } catch (resourceError) {
-        // Don't log expected "Method not found" errors as many servers don't implement resources
-        if (!(resourceError instanceof Error && 
-              resourceError.name === 'McpError' && 
-              resourceError.message.includes('Method not found'))) {
-          console.error(`DEBUG: Error fetching resources from ${server.id}:`, resourceError);
-        }
-      }
-      
-      // Fetch resource templates
-      this.reportProgress({
-        stage: 'fetching',
-        serverId: server.id,
-        message: `Fetching resource templates from ${server.id}`
-      });
-      
-      try {
-        const resourceTemplates = await server.client.listResourceTemplates();
-        report.capabilities.resourceTemplates = resourceTemplates?.resourceTemplates || [];
-      } catch (templateError) {
-        // Don't log expected "Method not found" errors as many servers don't implement resource templates
-        if (!(templateError instanceof Error && 
-              templateError.name === 'McpError' && 
-              templateError.message.includes('Method not found'))) {
-          console.error(`DEBUG: Error fetching resource templates from ${server.id}:`, templateError);
-        }
-      }
-      
-      this.reportProgress({
-        stage: 'complete',
-        serverId: server.id,
-        message: `Completed fetching capabilities from ${server.id}`
-      });
-    } catch (error) {
-      this.reportProgress({
-        stage: 'error',
-        serverId: server.id,
-        message: `Error fetching capabilities from ${server.id}`,
-        error: error as Error
-      });
-    }
-    
     return report;
   }
-  
-  /**
-   * Generate a report for all servers
-   */
-  private async generateReport(): Promise<string> {
-    this.reportProgress({
-      stage: 'reporting',
-      message: 'Generating markdown report'
-    });
-    
-    const markdown = MarkdownGenerator.generateReport(this.reports);
-    
-    this.reportProgress({
-      stage: 'complete',
-      message: 'Report generation complete'
-    });
-    
-    return markdown;
-  }
-  
-  /**
-   * Write the report to the file system
-   */
-  private async writeReport(content: string): Promise<void> {
-    try {
-      this.reportProgress({
-        stage: 'reporting',
-        message: `Writing report to ${this.options.outputPath}`
-      });
-      
-      // Create directory if it doesn't exist
-      const directory = path.dirname(this.options.outputPath);
-      await fs.mkdir(directory, { recursive: true });
-      
-      // Write the report
-      await fs.writeFile(this.options.outputPath, content, 'utf-8');
-      
-      this.reportProgress({
-        stage: 'complete',
-        message: `Report written to ${this.options.outputPath}`
-      });
-    } catch (error) {
-      this.reportProgress({
-        stage: 'error',
-        message: 'Failed to write report to file',
-        error: error as Error
-      });
-      throw error;
-    }
-  }
-
-  /**
-   * Close all server connections and cleanup resources
-   */
-  private async closeConnections(): Promise<void> {
-    try {
-      this.reportProgress({
-        stage: 'reporting',
-        message: `Closing MCP server connections`
-      });
-      
-      // Close each server connection
-      const closePromises = this.servers
-        .filter(server => server.connected && server.client)
-        .map(async server => {
-          try {
-            await server.client!.close();
-          } catch (error) {
-            console.error(`Error closing connection to ${server.id}:`, error);
-          }
-        });
-      
-      // Wait for all connections to close
-      await Promise.all(closePromises);
-      
-      this.reportProgress({
-        stage: 'complete',
-        message: `All connections closed`
-      });
-    } catch (error) {
-      this.reportProgress({
-        stage: 'error',
-        message: 'Error while closing connections',
-        error: error as Error
-      });
-    }
-  }
-  
-  /**
-   * Run the reporter
-   */
+  /** Run a fresh collection; always close clients, including after report write failures. */
   public async run(): Promise<void> {
-    ProgressReporter.initializeReporter();
-    
+    const reports: ServerReport[] = [];
     try {
-      // Read config
       await this.readConfig();
-      
-      // Connect to each server
       for (const server of this.servers) {
-        await this.connectToServer(server);
+        await this.connect(server);
+        reports.push(await this.collect(server));
       }
-      
-      // Fetch capabilities from connected servers
-      for (const server of this.servers.filter(s => s.connected)) {
-        const report = await this.fetchServerCapabilities(server);
-        this.reports.push(report);
+      const markdown = MarkdownGenerator.generateReport(reports, this.options);
+      await mkdir(dirname(this.options.outputPath), { recursive: true });
+      await writeFile(this.options.outputPath, markdown, 'utf8');
+      this.progress({ stage: 'complete', message: 'MCP server capability reporting complete' });
+    } finally {
+      for (const server of this.servers) {
+        try {
+          await server.client?.close();
+        } catch (error) {
+          this.progress({ stage: 'error', serverId: server.id, message: diagnostic(error) });
+        }
       }
-      
-      // Add failed servers to reports
-      for (const server of this.servers.filter(s => !s.connected)) {
-        this.reports.push({
-          ...server,
-          capabilities: {
-            tools: [],
-            resources: [],
-            resourceTemplates: []
-          }
-        });
-      }
-      
-      // Generate and write report
-      const reportContent = await this.generateReport();
-      await this.writeReport(reportContent);
-
-      // Close all connections
-      await this.closeConnections();
-      
-      this.reportProgress({
-        stage: 'complete',
-        message: 'MCP server capability reporting complete'
-      });
-    } catch (error) {
-      this.reportProgress({
-        stage: 'error',
-        message: 'MCP server capability reporting failed',
-        error: error as Error
-      });
-      throw error;
     }
   }
 }
-
-/**
- * Main entry point
- */
+/** Default executable entry point, retained for direct invocation. */
 export async function main(): Promise<void> {
-  try {
-    // Path to MCP servers config
-    const configPath = path.resolve(process.cwd(), 'mcp-servers.json');
-    
-    // Output path for the report
-    const outputPath = path.resolve(process.cwd(), 'output', 'mcp_server_report.md');
-    
-    // Create reporter
-    const reporter = new McpReporter(configPath, {
-      outputPath
-    });
-    
-    // Run reporter
-    await reporter.run();
-  } catch (error) {
-    console.error('Fatal error:', (error as Error).message);
-    process.exit(1);
-  } finally {
-    // Ensure process exits
-    process.exit(0);
-  }
+  const { runCli } = await import('./cli.js');
+  await runCli();
 }
-
-// If this file is being run directly, run the main function
-if (require.main === module) {
-  main().catch(console.error);
+if (isEntryPoint(import.meta.url)) {
+  main().catch(() => {
+    console.error('mcp-reporter failed.');
+    process.exitCode = 1;
+  });
 }

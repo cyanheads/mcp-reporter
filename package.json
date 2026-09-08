@@ -1,23 +1,34 @@
 {
   "name": "mcp-reporter",
-  "version": "1.0.1",
-  "description": "mcp-reporter is a streamlined utility that generates comprehensive capability reports for Model Context Protocol servers, empowering developers to easily understand available functionality across their MCP servers ecosystem for both documentation and integration into other tools.",
+  "version": "1.1.0",
+  "description": "Generate Markdown capability reports for local and remote Model Context Protocol servers.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
     "mcp-reporter": "dist/cli.js"
   },
   "scripts": {
-    "build": "tsc && node -e \"process.platform !== 'win32' && require('fs').existsSync('dist/index.js') && require('fs').chmodSync('dist/index.js', '0755') && require('fs').existsSync('dist/cli.js') && require('fs').chmodSync('dist/cli.js', '0755')\"",
-    "start": "node dist/index.js",
-    "clean": "ts-node --project tsconfig.scripts.json scripts/clean.ts",
-    "rebuild": "npm run clean && npm run build",
-    "tree": "ts-node --project tsconfig.scripts.json scripts/tree.ts"
+    "build": "tsc && bun scripts/build.ts",
+    "start": "node dist/cli.js",
+    "clean": "bun scripts/clean.ts",
+    "rebuild": "bun run clean && bun run build",
+    "tree": "bun scripts/tree.ts",
+    "test": "bun test",
+    "check": "bun run lint && tsc --noEmit && tsc --project tsconfig.tests.json && bun run changelog:check && bun test",
+    "lint": "biome check . --error-on-warnings",
+    "format": "biome check --write .",
+    "devcheck": "bun run check",
+    "test:all": "bun test",
+    "test:package": "bun run tests/package-smoke.ts",
+    "list-skills": "bun scripts/list-skills.ts",
+    "changelog:build": "bun scripts/build-changelog.ts",
+    "changelog:check": "bun scripts/build-changelog.ts --check",
+    "release:github": "bun scripts/release-github.ts",
+    "example:report": "bun scripts/example-report.ts"
   },
   "keywords": [
     "ai",
     "agent",
-    "llm",
     "mcp",
     "model-context-protocol",
     "reporting",
@@ -27,19 +38,48 @@
     "api-documentation",
     "mcp-reporter"
   ],
-  "author": "Casey Hand @cyanheads",
+  "author": {
+    "name": "Casey Hand",
+    "email": "casey@caseyjhand.com",
+    "url": "https://caseyjhand.com"
+  },
   "license": "Apache-2.0",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.7.0",
-    "chalk": "^5.4.1",
-    "commander": "^13.1.0",
-    "fast-glob": "^3.3.2", 
-    "fs-extra": "^11.2.0",
-    "ora": "^8.2.0",
-    "@types/node": "^22.13.10",
-    "nodemon": "^3.1.9",
-    "rimraf": "^6.0.1",
-    "ts-node": "^10.9.2",
-    "typescript": "^5.8.2"
-  }
+    "@modelcontextprotocol/client": "^2.0.0",
+    "chalk": "^6.0.0",
+    "commander": "^15.0.0",
+    "ora": "^9.4.1",
+    "zod": "^4.5.4"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "mcp-servers.json.example",
+    "skills",
+    "changelog",
+    "CHANGELOG.md",
+    "docs"
+  ],
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.12",
+    "@modelcontextprotocol/server": "^2.0.0",
+    "@types/bun": "^1.4.2",
+    "@types/node": "^26.5.0",
+    "ignore": "^7.0.9",
+    "typescript": "^7.0.2"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cyanheads/mcp-reporter.git"
+  },
+  "homepage": "https://github.com/cyanheads/mcp-reporter#readme",
+  "bugs": {
+    "url": "https://github.com/cyanheads/mcp-reporter/issues"
+  },
+  "packageManager": "bun@1.4.0"
 }
