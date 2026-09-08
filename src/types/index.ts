@@ -1,25 +1,59 @@
-/**
- * MCP Server Reporter Types
- * Types for the MCP server capability reporting system
- */
+/** src/types/index.ts — Configuration, collected capabilities, and report options. */
+import type {
+  ServerCapabilities as AdvertisedCapabilities,
+  Client,
+  Implementation,
+  Prompt,
+  Resource,
+  ResourceTemplateType,
+  Tool,
+  Transport,
+} from '@modelcontextprotocol/client';
 
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-
-/** MCP Server configuration from the JSON file */
-export interface McpServerConfig {
+/** Local process configuration; existing command/args entries remain valid. */
+export interface StdioServerConfig {
+  type?: 'stdio';
   command: string;
-  args: string[];
+  args?: string[];
   env?: Record<string, string>;
+  cwd?: string;
+  url?: never;
+  headers?: never;
   disabled?: boolean;
   alwaysAllow?: string[];
 }
-
-/** Full MCP server configuration object */
+/** Remote Streamable HTTP configuration. Header values are never rendered. */
+export interface HttpServerConfig {
+  type?: 'http';
+  url: string;
+  headers?: Record<string, string>;
+  command?: never;
+  args?: never;
+  env?: never;
+  cwd?: never;
+  disabled?: boolean;
+  alwaysAllow?: string[];
+}
+/** One configured server. */
+export type McpServerConfig = StdioServerConfig | HttpServerConfig;
+/** Configuration file envelope. */
 export interface McpServersConfig {
   mcpServers: Record<string, McpServerConfig>;
 }
-
-/** Processed server information */
+/** Reportable tool definition, including optional caller-supplied examples. */
+export type ToolInfo = Tool & { examples?: { in: unknown; out: unknown }[] };
+/** Protocol definitions are retained without reducing their metadata. */
+export type ResourceInfo = Resource;
+export type ResourceTemplateInfo = ResourceTemplateType;
+export type PromptInfo = Prompt;
+/** Collected capability catalog. Prompts is optional for existing generator callers. */
+export interface ServerCapabilities {
+  tools: ToolInfo[];
+  resources: ResourceInfo[];
+  resourceTemplates: ResourceTemplateInfo[];
+  prompts?: PromptInfo[];
+}
+/** Connection identity and transport configuration. */
 export interface ServerInfo {
   id: string;
   name: string;
@@ -27,69 +61,51 @@ export interface ServerInfo {
   client?: Client;
   connected: boolean;
   error?: string;
+  connectionTime?: number;
+  implementation?: Implementation;
+  protocolVersion?: string;
+  protocolEra?: 'legacy' | 'modern';
+  advertisedCapabilities?: AdvertisedCapabilities;
+  instructions?: string;
 }
-
-/** Tool parameter information */
-export interface ToolParameter {
-  name: string;
-  description?: string;
-  required?: boolean;
-  schema?: any;
-}
-
-/** Tool information */
-export interface ToolInfo {
-  name: string;
-  description?: string;
-  inputSchema: any;
-  examples?: { in: any; out: any }[];
-}
-
-/** Resource information */
-export interface ResourceInfo {
-  uri: string;
-  name: string;
-  description?: string;
-  mimeType?: string;
-}
-
-/** Resource template information */
-export interface ResourceTemplateInfo {
-  uriTemplate: string;
-  name: string;
-  description?: string;
-  mimeType?: string;
-}
-
-/** Collected server capabilities */
-export interface ServerCapabilities {
-  tools: ToolInfo[];
-  resources: ResourceInfo[];
-  resourceTemplates: ResourceTemplateInfo[];
-}
-
-/** Full server report information */
+/** A list is either complete, not advertised, or incomplete with a safe diagnostic. */
+export type CapabilityStatus =
+  | { state: 'complete' }
+  | { state: 'not-advertised' }
+  | { state: 'incomplete'; error: string };
+/** Full server report. */
 export interface ServerReport extends ServerInfo {
   capabilities: ServerCapabilities;
-  connectionTime?: number; // in milliseconds
+  capabilityStatus?: Partial<Record<keyof ServerCapabilities, CapabilityStatus>>;
 }
-
-/** Reporter progress event */
+/** Progress event; errors contain safe diagnostics, never raw transport objects. */
 export interface ProgressEvent {
   stage: 'init' | 'connecting' | 'fetching' | 'reporting' | 'complete' | 'error';
   serverId?: string;
   message: string;
   error?: Error;
 }
-
-/** Reporter progress callback */
+/** Receives reporting lifecycle events. */
 export type ProgressCallback = (event: ProgressEvent) => void;
-
-/** Report generation options */
+/** CLI and programmatic protocol selection. */
+export type ProtocolEraOption = 'legacy' | 'auto' | '2026-07-28';
+/** Rendering, connection bounds, and optional injected transport for testing/embedding. */
 export interface ReportOptions {
   outputPath: string;
   includeInputSchemas: boolean;
   includeServerMetadata: boolean;
   includeExamples: boolean;
+  protocolEra?: ProtocolEraOption;
+  maxPages?: number;
+  timeoutMs?: number;
   progressCallback?: ProgressCallback;
+  transportFactory?: (config: McpServerConfig, serverId: string) => Transport | Promise<Transport>;
+}
+
+/** Legacy parameter descriptor retained for typed consumers. */
+export interface ToolParameter {
+  name: string;
+  description?: string;
+  required?: boolean;
+  schema?: unknown;
 }

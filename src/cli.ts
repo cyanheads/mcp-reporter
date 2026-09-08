@@ -1,63 +1,77 @@
 #!/usr/bin/env node
-/**
- * MCP Server Capability Reporter CLI
- * 
- * Command line interface for the MCP server capability reporter
- */
+/** src/cli.ts — Command-line options and exit status for capability reports. */
 
-import { Command } from 'commander';
-import * as path from 'path';
-import { McpReporter } from './index';
+import { resolve } from 'node:path';
+import { Command, InvalidArgumentError, Option } from 'commander';
+import { McpReporter } from './index.js';
+import { isEntryPoint } from './is-entry-point.js';
+import type { ProtocolEraOption } from './types/index.js';
+import { ProgressReporter } from './utils/progress.js';
+import { VERSION } from './version.js';
 
-// Create CLI program
-const program = new Command();
-
-// Configure program
-program
-  .name('mcp-reporter')
-  .description('Generate a report of MCP server capabilities')
-  .version('1.0.0')
-  .option('-c, --config <path>', 'Path to the MCP servers configuration file', 'mcp-servers.json')
-  .option('-o, --output <path>', 'Output path for the report', 'output/mcp_server_report.md')
-  .option('-s, --schemas', 'Include input schemas in the report', true)
-  .option('-m, --metadata', 'Include server metadata in the report', true)
-  .option('-e, --examples', 'Include examples in the report', true)
-  .parse(process.argv);
-
-// Get options
-const options = program.opts();
-
-// Run the reporter
-async function run() {
+function positiveInteger(value: string): number {
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 1)
+    throw new InvalidArgumentError('Expected a positive integer.');
+  return parsed;
+}
+/** Run the CLI; only this entry point owns console progress. */
+export async function runCli(argv = process.argv): Promise<void> {
+  const program = new Command()
+    .name('mcp-reporter')
+    .description('Generate Markdown capability reports for MCP servers')
+    .version(VERSION)
+    .option('-c, --config <path>', 'MCP servers configuration file', 'mcp-servers.json')
+    .option('-o, --output <path>', 'Report output file', 'output/mcp_server_report.md')
+    .option('-s, --schemas', 'Include input schemas')
+    .option('--no-schemas', 'Omit input schemas')
+    .option('-m, --metadata', 'Include server identity, protocol and instructions')
+    .option('--no-metadata', 'Omit server metadata')
+    .option('-e, --examples', 'Include caller-supplied examples, when present')
+    .option('--no-examples', 'Omit examples')
+    .addOption(
+      new Option('--protocol-era <era>', 'Handshake mode')
+        .choices(['legacy', 'auto', '2026-07-28'])
+        .default('legacy'),
+    )
+    .option('--max-pages <count>', 'Maximum pages per capability list', positiveInteger, 64)
+    .option(
+      '--timeout <ms>',
+      'Connection and request timeout in milliseconds',
+      positiveInteger,
+      30000,
+    )
+    .option('-q, --quiet', 'Suppress progress output')
+    .parse(argv);
+  const options = program.opts<{
+    config: string;
+    output: string;
+    schemas?: boolean;
+    metadata?: boolean;
+    examples?: boolean;
+    protocolEra: ProtocolEraOption;
+    maxPages: number;
+    timeout: number;
+    quiet?: boolean;
+  }>();
   try {
-    // Resolve paths
-    const configPath = path.resolve(process.cwd(), options.config);
-    const outputPath = path.resolve(process.cwd(), options.output);
-    
-    console.log(`Using configuration from: ${configPath}`);
-    console.log(`Report will be saved to: ${outputPath}`);
-    
-    // Create reporter
-    const reporter = new McpReporter(configPath, {
-      outputPath,
-      includeInputSchemas: options.schemas,
-      includeServerMetadata: options.metadata,
-      includeExamples: options.examples
-    });
-    
-    // Run reporter
-    await reporter.run();
-    
-    // Exit successfully
-    process.exit(0);
+    if (!options.quiet) ProgressReporter.initializeReporter();
+    await new McpReporter(resolve(options.config), {
+      outputPath: resolve(options.output),
+      includeInputSchemas: options.schemas !== false,
+      includeServerMetadata: options.metadata !== false,
+      includeExamples: options.examples !== false,
+      protocolEra: options.protocolEra,
+      maxPages: options.maxPages,
+      timeoutMs: options.timeout,
+      progressCallback: options.quiet
+        ? undefined
+        : (event) => ProgressReporter.processProgressEvent(event),
+    }).run();
   } catch (error) {
-    console.error('Error:', (error as Error).message);
-    process.exit(1);
+    ProgressReporter.stop();
+    console.error(error instanceof Error ? error.message : 'mcp-reporter failed.');
+    process.exitCode = 1;
   }
 }
-
-// Run the program
-run().catch(error => {
-  console.error('Fatal error:', error);
-  process.exit(1);
-});
+if (isEntryPoint(import.meta.url)) await runCli();
