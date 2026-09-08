@@ -6,7 +6,7 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/Version-1.1.1-blue.svg?style=flat-square)](./CHANGELOG.md) [![License](https://img.shields.io/badge/License-Apache%202.0-orange.svg?style=flat-square)](./LICENSE) [![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A522.12.0-339933.svg?style=flat-square)](https://nodejs.org/) [![MCP SDK](https://img.shields.io/badge/MCP%20SDK-2.0.0-8A2BE2.svg?style=flat-square)](https://github.com/modelcontextprotocol/typescript-sdk)
+[![Version](https://img.shields.io/badge/Version-1.1.2-blue.svg?style=flat-square)](./CHANGELOG.md) [![License](https://img.shields.io/badge/License-Apache%202.0-orange.svg?style=flat-square)](./LICENSE) [![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A522.12.0-339933.svg?style=flat-square)](https://nodejs.org/) [![MCP SDK](https://img.shields.io/badge/MCP%20SDK-2.0.0-8A2BE2.svg?style=flat-square)](https://github.com/modelcontextprotocol/typescript-sdk)
 
 [Quick start](#quick-start) · [Configuration](#configuration) · [Report contents](#report-contents) · [Library](#use-as-a-library) · [Development](#development)
 

@@ -162,9 +162,7 @@ function collectVersionFiles(): VersionEntry[] {
   return entries.sort((a, b) => compareSemverDesc(a.version, b.version));
 }
 
-function buildRollup(): { content: string; missingSummary: string[] } {
-  const entries = collectVersionFiles();
-
+function buildRollup(entries: VersionEntry[]): { content: string; missingSummary: string[] } {
   if (entries.length === 0) {
     throw new Error(`No per-version changelog files found under ${CHANGELOG_DIR}/<major.minor>.x/`);
   }
@@ -211,16 +209,18 @@ function main(): void {
     process.exit(0);
   }
 
+  const entries = collectVersionFiles();
+
   // A fresh scaffold ships `changelog/template.md` (excluded) and no `<major.minor>.x/`
   // version files yet, so `changelog/` exists but `buildRollup()` would throw. Under
   // --check, that's not drift — skip cleanly. A manual `changelog:build` still throws,
   // surfacing the empty-tree mistake when someone explicitly regenerates.
-  if (checkOnly && collectVersionFiles().length === 0) {
+  if (checkOnly && entries.length === 0) {
     console.log(`Skipped: no per-version changelog files under ${CHANGELOG_DIR}/<major.minor>.x/.`);
     process.exit(0);
   }
 
-  const { content: generated, missingSummary } = buildRollup();
+  const { content: generated, missingSummary } = buildRollup(entries);
 
   if (checkOnly) {
     let existing = '';

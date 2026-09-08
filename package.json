@@ -1,6 +1,6 @@
 {
   "name": "mcp-reporter",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "Generate Markdown capability reports for local and remote Model Context Protocol servers.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
