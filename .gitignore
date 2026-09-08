@@ -165,3 +165,5 @@ coverage/
 *repomix*
 mcp-servers.json
 backups/
+# Reports generated from local server configurations stay local.
+/output/
