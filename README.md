@@ -6,7 +6,7 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/Version-1.1.2-blue.svg?style=flat-square)](./CHANGELOG.md) [![License](https://img.shields.io/badge/License-Apache%202.0-orange.svg?style=flat-square)](./LICENSE) [![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A522.12.0-339933.svg?style=flat-square)](https://nodejs.org/) [![MCP SDK](https://img.shields.io/badge/MCP%20SDK-2.0.0-8A2BE2.svg?style=flat-square)](https://github.com/modelcontextprotocol/typescript-sdk)
+[![Version](https://img.shields.io/badge/Version-1.1.2-blue.svg?style=flat-square)](./CHANGELOG.md) [![License](https://img.shields.io/badge/License-Apache%202.0-orange.svg?style=flat-square)](./LICENSE) [![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A522.12.0-339933.svg?style=flat-square)](https://nodejs.org/) [![MCP SDK](https://img.shields.io/badge/MCP%20SDK-2.4.0-8A2BE2.svg?style=flat-square)](https://github.com/modelcontextprotocol/typescript-sdk)
 
 [Quick start](#quick-start) · [Configuration](#configuration) · [Report contents](#report-contents) · [Library](#use-as-a-library) · [Development](#development)
 
@@ -81,6 +81,8 @@ The configuration is a JSON object containing `mcpServers`. Each key identifies 
 
 Supply exactly one of `command` or `url`. The reporter validates the entire file before connecting. Paths are resolved from the process working directory; use absolute paths when sharing a configuration between callers. Interactive OAuth and legacy SSE endpoints are not supported.
 
+An HTTP endpoint may redirect within its own origin, such as `/mcp` to `/mcp/`. A redirect to another origin, or one that changes the request method, is not followed and is reported as a connection failure, so configured headers never leave the configured origin.
+
 Configuration values can contain credentials. The reporter omits env/header values, raw command arguments, and URL paths/query/userinfo from its diagnostics and launch metadata. Child stderr is suppressed; failures use safe error categories. Server-provided descriptions, schemas, instructions, and extension metadata are retained as report content, so review those before sharing a report.
 
 ## Choose a protocol mode
@@ -110,9 +112,9 @@ Auto mode can start an extra short-lived stdio process and wait for a probe time
 | Resources and templates | URIs/templates, names, descriptions, MIME types and supplied metadata |
 | Prompts | Names, descriptions, arguments, required flags and supplied metadata |
 
-Lists are collected page by page. Each capability is reported as **not advertised**, **complete** (possibly empty), or **incomplete**. Page limits, repeated cursors and request failures keep collected entries and mark their counts as partial. A failed server or list does not discard successful neighbors.
+Up to four servers are collected at once, and each connection closes as soon as its lists are read; the report keeps configuration order. Lists are collected page by page. Each capability is reported as **not advertised**, **complete** (possibly empty), or **incomplete**. Page limits, repeated cursors and request failures keep collected entries and mark their counts as partial. A failed server or list does not discard successful neighbors.
 
-Tables and text carry the report; collapsible details hold longer definitions. Icons remain metadata rather than remote image loads. Server annotations are hints supplied by the server, not independently verified safety guarantees. Enumeration retains advertisements even when a client might refuse to call a tool with an invalid schema extension.
+Tables carry the summary. Collapsible details hold each entry's full description and the server instructions as verbatim text, followed by schemas and the remaining definition fields. Icons remain metadata rather than remote image loads. Server annotations are hints supplied by the server, not independently verified safety guarantees. Enumeration retains advertisements even when a client might refuse to call a tool with an invalid schema extension.
 
 ## CLI options
 
@@ -160,7 +162,7 @@ const reporter = new McpReporter('./mcp-servers.json', {
 await reporter.run();
 ```
 
-The library is ESM and stays quiet without a progress callback. `run()` resolves after writing the report and closing connections; it rejects configuration/file errors. A second run starts a fresh collection. `ReportOptions.transportFactory(config, serverId)` can supply a transport for embedding or deterministic tests.
+The library is ESM and stays quiet without a progress callback. Events from servers collected at the same time interleave; per-server events carry `serverId`. `run()` resolves after writing the report and closing connections; it rejects configuration/file errors. A second run starts a fresh collection. `ReportOptions.transportFactory(config, serverId)` can supply a transport for embedding or deterministic tests.
 
 Types are exported from the package root. To render an already collected `ServerReport[]`, import `MarkdownGenerator` from `mcp-reporter` and call `generateReport(reports, options)`. It honors the same rendering flags and preserves optional `ToolInfo.examples` supplied by the caller.
 

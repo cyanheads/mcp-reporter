@@ -10,11 +10,13 @@ Read this file, run `bun run list-skills`, then read the task-specific skill. `A
 
 - TypeScript strict mode, ESM, explicit `.js` relative imports, Bun for development. `package.json` is the version and runtime authority; `src/version.ts` supplies both CLI and handshake identity.
 - `src/config.ts` validates all configuration before connections start. Preserve existing command/args/env/disabled entries. Exactly one of command or HTTP(S) URL selects the transport; optional type must agree.
-- `src/index.ts` owns connection lifecycle and typed page-level requests. Legacy handshake is the default; auto/pinned modern negotiation is opt-in. Do not add a discovery probe to the default path.
+- `src/index.ts` owns connection lifecycle and typed page-level requests. Legacy handshake is the default; auto/pinned modern negotiation is opt-in. Do not add a discovery probe to the default path. The whole-handshake deadline applies to HTTP only: on stdio, `auto` must be able to outlast a silent probe and fall back to legacy.
+- Servers are collected `SERVER_CONCURRENCY` at a time and rendered in configuration order. Each server's client closes as soon as its lists are collected; `run()` settles every worker before it resolves or rejects.
+- HTTP redirects follow the SDK's default same-origin policy, which keeps configured headers on the configured origin. Never pass `redirectPolicy: 'follow'` or a `requestInit.redirect` override.
 - Read every `nextCursor`, including empty strings. Bound each list and detect repeated cursors. Incomplete lists retain collected entries with a visible status. Never equate not-advertised, successful empty, and failed collection.
 - Preserve protocol descriptors. The SDK's high-level list helpers may aggregate or filter advertisements; reporting uses the public typed request API to retain page boundaries and server-provided definitions.
 - Configured env/header values, raw args, and credential-bearing URLs stay out of reports and diagnostics. Child stderr is suppressed. Peer/transport error messages are untrusted; report stable classifications. Escape Markdown/HTML and choose fences longer than any embedded backtick run.
-- The library is quiet unless a progress callback is supplied. The CLI writes progress to stderr. Close every created transport on success and failure, including a failed report write.
+- The library is quiet unless a progress callback is supplied. The CLI writes progress to stderr. Close every created transport on success and failure; none remains open when the report is written or fails to write.
 - `src/utils/markdown.ts` owns presentation. Keep summaries readable without CSS or remote media loads. Server annotations are reported hints, not verified safety guarantees. Preserve caller-supplied examples; the MCP collector does not invent them.
 - Add JSDoc to exports and a file-purpose header. Use protocol types and `unknown` instead of `any`. Read complete files before editing; test behavior at transport and rendering boundaries.
 
