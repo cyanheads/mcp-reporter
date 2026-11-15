@@ -192,7 +192,7 @@ Run the built CLI with `node dist/cli.js --config mcp-servers.json`.
 | `bun run tree` | Regenerate the [directory map](docs/tree.md) |
 | `bun run list-skills` | List [project workflows](skills/README.md) |
 
-Tests use in-memory SDK servers, loopback HTTP and synthetic stdio processes. They need no credentials or external MCP servers. Release workflows use local gates, per-version changelogs, conventional commits and annotated tag digests; npm and GitHub are the publication targets.
+Tests use in-memory SDK servers, loopback HTTP and synthetic stdio processes. They need no credentials or external MCP servers. Verification runs locally; CodeQL is the only GitHub workflow. Each release lands as a `release/<version>` pull request fast-forwarded onto `main`, with per-version changelogs, conventional commits and an annotated tag digest that `bun run release:github -- --check` validates; npm and GitHub are the publication targets.
 
 [Contributing](.github/CONTRIBUTING.md) · [Security](.github/SECURITY.md) · [Changelog](CHANGELOG.md) · [Apache-2.0 license](LICENSE)
 

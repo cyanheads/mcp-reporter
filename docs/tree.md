@@ -1,6 +1,6 @@
 # mcp-reporter - Directory Structure
 
-Generated on: 2026-11-15 13:24:05
+Generated on: 2026-11-15 13:49:36
 
 ```text
 mcp-reporter/
@@ -13,6 +13,8 @@ mcp-reporter/
 │   │   ├── bug_report.yml
 │   │   ├── config.yml
 │   │   └── feature_request.yml
+│   ├── workflows/
+│   │   └── codeql.yml
 │   ├── CODE_OF_CONDUCT.md
 │   ├── CONTRIBUTING.md
 │   ├── FUNDING.yml
@@ -48,6 +50,8 @@ mcp-reporter/
 │   │   └── SKILL.md
 │   ├── release-and-publish/
 │   │   └── SKILL.md
+│   ├── release-pr-review/
+│   │   └── SKILL.md
 │   ├── report-issue-local/
 │   │   └── SKILL.md
 │   └── README.md
@@ -72,6 +76,7 @@ mcp-reporter/
 │   ├── http.test.ts
 │   ├── integration.test.ts
 │   ├── package-smoke.ts
+│   ├── release-github.test.ts
 │   └── reporting.test.ts
 ├── .gitignore
 ├── AGENTS.md
