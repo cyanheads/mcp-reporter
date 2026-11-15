@@ -36,7 +36,11 @@
     "documentation",
     "llm-ecosystem",
     "api-documentation",
-    "mcp-reporter"
+    "mcp-reporter",
+    "mcp-client",
+    "developer-tools",
+    "typescript",
+    "cyanheads"
   ],
   "author": {
     "name": "Casey Hand",
