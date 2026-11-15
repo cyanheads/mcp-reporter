@@ -3,7 +3,7 @@ name: polish-docs-meta
 description: Reconcile mcp-reporter's README, package identity, example reports, project guidance and release metadata against verified behavior.
 metadata:
   author: cyanheads
-  version: "1.0"
+  version: "1.1"
   type: project-workflow
 ---
 
@@ -16,5 +16,7 @@ Check installation commands against the package contents and runtime floor; deri
 Regenerate `docs/example-report.md` from synthetic fixtures and `docs/tree.md` from the script. Never publish a private configuration or operational report as an example. Make relative README links usable from GitHub and keep generated files synchronized.
 
 Verify package version, README badge, shared VERSION, changelog date/frontmatter/index, skill paths and script names. Release descriptions follow `git-wrapup`; avoid duplicating a changelog as a tag body.
+
+The `package.json` `description` is canonical: the GitHub repo description matches it (`gh repo edit cyanheads/mcp-reporter --description "<description>"`). GitHub topics (`gh repo view --json repositoryTopics`) and `keywords` are kept as their union; add what either lacks. Keep `.github/` current against mcp-ts-core's `templates/.github/`: the issue forms (Environment table, field descriptions), the security advisory link in `ISSUE_TEMPLATE/config.yml`, CONTRIBUTING's agent section, and `workflows/codeql.yml` byte-identical to the template, the only workflow.
 
 Cold-read all substantial prose as a new user. Remove inflated claims, repeated framing, filler, gratuitous headings and unexplained jargon. Preserve exact API names and hard constraints. Run the local gates and package smoke test after docs/config changes that affect behavior or package contents. This workflow does not commit or publish.

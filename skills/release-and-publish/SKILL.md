@@ -1,48 +1,87 @@
 ---
 name: release-and-publish
-description: Publish an approved, verified mcp-reporter release to npm and GitHub using the annotated tag digest.
+description: Ship a wrapped-up mcp-reporter release — final gates, fast-forward `main` from the release branch, create and check the annotated tag, push, publish to npm, and create the GitHub Release from the tag.
 metadata:
   author: cyanheads
-  version: "1.0"
+  version: "1.1"
   type: project-workflow
 ---
 
 # Release and publish
 
-Requires explicit publishing authorization and a completed `git-wrapup`: synchronized version/changelog, reviewed commits, annotated `v<version>` at HEAD, and no unresolved working-tree changes. Read `CLAUDE.md`. This CLI targets npm and GitHub Releases; no MCP Registry, MCPB, Docker, or hosting steps apply.
+Requires explicit publishing authorization and a completed `git-wrapup`: version and changelog synchronized, the release commit in the stack, a clean tree, and no `v<version>` tag yet. In release PR mode HEAD is on the pushed `release/<version>` with its PR open; a gated release also needs the caller's confirmation that the `release-pr-review` pass finished, and halts without it. Read `CLAUDE.md`. The destinations are npm and GitHub Releases only: no MCP Registry, MCPB, Docker, or hosting steps apply, and none get placeholder metadata.
 
 ## 1. Verify wrapup
 
-Read package version, current branch, origin, tag target, annotation and status. Verify tag signing when configured; a signature block must never be interpreted as release text. An existing tag conflict is a stop, not permission to replace it.
+Read the package version, branch, status, and stack. `git log -1 --format=%s` starts with `chore(release): <version>`; in gated mode the release commit may sit under the review pass's own commits, and anything else above it is a halt. Release PR mode: `gh pr view --json number,state,headRefOid` reports OPEN with `headRefOid` equal to `git rev-parse HEAD`. Keep the number and SHA; steps 3 to 5 need them after the checkout moves to `main`.
 
 ## 2. Run the gates
 
-Run `bun run devcheck`, `bun run rebuild`, `bun run test:package`, and `bun audit`. Inspect output and resolve failures/warnings. Confirm the package allowlist excludes local configs, reports, tests, backups and credentials. Review any transitive advisory by its actual installed dependency path.
+Run `bun run devcheck`, `bun run rebuild`, `bun run test:package`, and `bun audit`. Resolve failures and warnings; read any transitive advisory by its installed dependency path. Confirm the package allowlist excludes local configs, reports, tests, and credentials.
 
-## 3. Push the reviewed commits and exact tag
+## 3. Fast-forward `main` (release PR mode)
 
-Push the intended branch, then the exact release tag. Do not push unrelated tags. A rejection requires reconciliation, never force-push or stash. A PR route does not authorize merging.
+```bash
+git switch main
+git merge --ff-only release/<version>
+git rev-parse HEAD     # equals the PR's headRefOid
+```
 
-## 4. Publish npm
+The stack lands on `main` with the same SHAs and signatures, and GitHub marks the PR merged once its head is on `main`. Never the GitHub merge button or `gh pr merge`: squash and rebase-merge rewrite the stack, and a merge commit breaks linear history. A refused fast-forward means `main` moved underneath the branch: halt and report, never rebase.
 
-Run `bun publish --access public`. Verify the name is still `mcp-reporter`. Complete configured interactive authentication when requested by the registry. An already-published version is successful only after querying and verifying that exact package/version; never treat arbitrary publish errors as success.
+## 4. Create the annotated tag
 
-## 5. Record skipped server destinations
+Write the message to a file through a quoted heredoc and create the tag from it, never with `-m`:
 
-There is no `server.json`, MCP Registry registration, MCPB bundle or container deployment for this client. Do not create placeholder metadata or destinations to satisfy a server workflow.
+```bash
+cat > <scratch>/tag-v<version>.md <<'TAG'
+<subject>
 
-## 6. Create the GitHub Release
+- <notable behavior> (#N)
+- <one grouped line for smaller changes>
 
-Run `bun run release:github`. It uses the annotated tag and creates the title `v<VERSION>: <tag subject>` with `--verify-tag --notes-from-tag`. The annotation's subject omits the version and its flat digest ends in a per-version changelog link. Existing-release recovery updates the title; inspect the existing body before replacing any published content.
+[CHANGELOG v<version>](https://github.com/cyanheads/mcp-reporter/blob/main/changelog/<major.minor>.x/<version>.md) · release PR #<N>
+TAG
+git tag -a v<version> --cleanup=whitespace -F <scratch>/tag-v<version>.md
+```
 
-## 7. Reconcile tracked work
+`--cleanup=whitespace` keeps `#`-leading lines and leaves a signature git can parse; `verbatim` publishes the signature block into the release body.
 
-After verifying delivery, add concise resolution comments on addressed first-party issues with release/commit links, then close completed issues. Do not close another contributor's issue without authorization. Keep incomplete or blocked work open with accurate scope.
+- **Subject:** one short theme of about 60 characters, written fresh for the tag (the release commit's theme usually is it). No version, since GitHub prepends `v<version>:`, and no `;`.
+- **Body, release PR mode:** the PR body's `## Changes` bullets and final changelog link verbatim (`gh pr view <N> --json body -q .body`), with ` · release PR #<N>` appended to the link line. The theme line and `## Gates` stay on the PR. Without a PR, author the same digest from the changelog entry; every claim must appear there.
+- **Digest rules:** flat bullets with no Added/Changed/Fixed sections, narrative, or test counts. Every release concern appears at headline granularity, smaller ones in one grouped bullet. At most one dependency line. `(#N)` backlinks; an outside reporter is thanked as `(#N, thanks @user!)` on a bullet of its own. The changelog link is last, after a blank line.
 
-## 8. Report artifacts and partial failures
+Check it before anything is pushed:
 
-Return the npm version URL and GitHub Release URL. On a failure, state which destinations succeeded and the exact failing step. Retry transient network errors at most twice with brief backoff; do not retry authentication, integrity or semantic failures blindly.
+```bash
+git tag -l v<version> --format='%(if)%(contents:signature)%(then)signed%(else)unsigned%(end)'   # "signed" when tag signing is enabled
+bun run release:github -- --check
+```
 
-## 9. Verify reachability
+A tag that fails either check is local and seconds old: delete and recreate it. An existing `v<version>` pointing at HEAD is a prior run's success; one pointing anywhere else is a halt with both SHAs.
 
-Query the exact npm version and `gh release view v<version> --json url,tagName,name,isDraft`. Check the title and tag against local metadata. Distinguish a blocked verification from evidence that publication failed. Never report a release as complete based only on a push exit code.
+## 5. Push
+
+`git push origin main`, then `git push origin v<version>`. A rejection is a halt, never a force-push. Release PR mode: `gh pr view <N> --json state` must report `MERGED`; then `git push origin --delete release/<version>` and `git branch -d release/<version>`. A PR still OPEN or CLOSED means the pushed `main` lacks its head: stop before publishing.
+
+## 6. Publish to npm
+
+Run `bun publish --access public` and complete any interactive authentication the registry asks for. "Version already exists" is success only once `npm view mcp-reporter@<version> version` returns the version. Publish-time scanning can hold a new version back for minutes; wait in one bounded foreground call:
+
+```bash
+for i in $(seq 1 15); do curl -sf -m 15 -o /dev/null https://registry.npmjs.org/mcp-reporter/<version> && echo served && break; sleep 20; done
+```
+
+## 7. Create the GitHub Release
+
+Run `bun run release:github`. It re-checks the tag, then runs `gh release create v<version> --verify-tag --notes-from-tag --title "v<version>: <subject>"`, and on "release already exists" repairs the title. The tag is pushed by now, so a check failure here is a halt to report, not a silent recreate.
+
+## 8. Reconcile tracked work
+
+Comment on addressed first-party issues with the release link, then close completed ones. Never close another contributor's issue without authorization. Incomplete or blocked work stays open with an accurate scope.
+
+## 9. Report and verify
+
+Retry transient network failures (`ECONNRESET`, `ETIMEDOUT`, `EAI_AGAIN`, HTTP 502/503/504, `integrity check failed`) at most twice, about 5 s then 15 s apart; never retry authentication or semantic failures. On a halt, report the failing step, its output, the retry count, and which destinations already have the release; a re-run skips them through the success signals above.
+
+Verify `npm view mcp-reporter@<version> version` and `gh release view v<version> --json url,tagName,name,isDraft` against local metadata, then report the npm and GitHub Release URLs. A verification the sandbox blocks is reported as blocked, never routed around and never read as a failed publish; a push or publish exit code alone never counts as delivered.
