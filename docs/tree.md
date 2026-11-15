@@ -1,6 +1,6 @@
 # mcp-reporter - Directory Structure
 
-Generated on: 2026-09-08 17:17:05
+Generated on: 2026-11-15 13:24:05
 
 ```text
 mcp-reporter/
@@ -22,6 +22,7 @@ mcp-reporter/
 ├── changelog/
 │   ├── 1.0.x/
 │   ├── 1.1.x/
+│   ├── 1.2.x/
 │   └── template.md
 ├── docs/
 │   ├── example-report.md
@@ -76,6 +77,7 @@ mcp-reporter/
 ├── AGENTS.md
 ├── biome.json
 ├── bun.lock
+├── bunfig.toml
 ├── CHANGELOG.md
 ├── CLAUDE.md
 ├── LICENSE
