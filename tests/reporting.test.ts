@@ -122,3 +122,27 @@ test('implementation metadata and raw HTML summary labels render faithfully', ()
   expect(html).toContain('<summary>catalog_search</summary>');
   expect(html).not.toContain('<summary>catalog\\_search</summary>');
 });
+
+test('instructions and descriptions keep their line breaks as verbatim text', () => {
+  const description = 'Find records.\n\n- Use `id` for exact matches.\n```\nnot a fence\n```';
+  const instructions = 'Read the catalog.\nNever call `delete`.';
+  const markdown = MarkdownGenerator.generateReport([
+    {
+      ...server,
+      instructions,
+      capabilities: {
+        ...server.capabilities,
+        tools: [{ ...server.capabilities.tools[0], description }],
+        prompts: [{ name: 'summarize', description: 'First line.\nSecond line.' }],
+      },
+    },
+  ]);
+  const html = Bun.markdown.html(markdown);
+  const text = (value: string) =>
+    value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+  for (const value of [description, instructions, 'First line.\nSecond line.'])
+    expect(html).toContain(`<code class="language-text">${text(value)}\n</code>`);
+  expect(markdown).not.toContain(JSON.stringify(instructions));
+  expect(markdown).not.toContain(JSON.stringify(description));
+  expect(markdown).toContain('| lookup |  | Find records. - Use \\`id\\` for exact matches.');
+});

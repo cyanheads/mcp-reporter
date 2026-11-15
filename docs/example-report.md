@@ -1,6 +1,6 @@
 # MCP Server Capabilities Report
 
-Generated on: 2026-09-08T17:15:03.382Z
+Generated on: 2026-11-15T13:18:41.405Z
 
 ## Executive Summary
 
@@ -55,10 +55,9 @@ Descriptors and annotations are server-reported hints, not verified safety or ca
 <details>
 <summary>Server instructions</summary>
 
-```json
-"Search the catalog by name. Resource URIs identify catalog entries."
+```text
+Search the catalog by name. Resource URIs identify catalog entries.
 ```
-
 
 </details>
 
@@ -70,6 +69,12 @@ Descriptors and annotations are server-reported hints, not verified safety or ca
 
 <details>
 <summary>catalog_search</summary>
+
+#### Description
+
+```text
+Find catalog entries by name.
+```
 
 #### Input Schema
 
@@ -110,7 +115,6 @@ Descriptors and annotations are server-reported hints, not verified safety or ca
 {
   "name": "catalog_search",
   "title": "Search the catalog",
-  "description": "Find catalog entries by name.",
   "annotations": {
     "readOnlyHint": true,
     "destructiveHint": false,
@@ -131,13 +135,18 @@ Descriptors and annotations are server-reported hints, not verified safety or ca
 <details>
 <summary>catalog-overview</summary>
 
+#### Description
+
+```text
+Catalog summary.
+```
+
 #### Definition
 
 ```json
 {
   "name": "catalog-overview",
   "uri": "catalog://overview",
-  "description": "Catalog summary.",
   "mimeType": "text/plain"
 }
 ```
@@ -174,12 +183,17 @@ Descriptors and annotations are server-reported hints, not verified safety or ca
 <details>
 <summary>compare-entries</summary>
 
+#### Description
+
+```text
+Compare two catalog entries.
+```
+
 #### Definition
 
 ```json
 {
   "name": "compare-entries",
-  "description": "Compare two catalog entries.",
   "arguments": [
     {
       "name": "first",

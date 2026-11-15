@@ -19,11 +19,14 @@ function htmlText(value: string): string {
 function text(value: string): string {
   return htmlText(value).replace(/([\\`*_[\]|])/g, '\\$1');
 }
-function json(value: unknown): string {
-  const body = JSON.stringify(value, null, 2);
+/** Fence a block longer than any backtick run inside it, so server text cannot close it early. */
+function fence(body: string, info: 'json' | 'text'): string {
   const runs = body.match(/`+/g) ?? [];
-  const fence = '`'.repeat(Math.max(3, ...runs.map((run) => run.length + 1)));
-  return `${fence}json\n${body}\n${fence}\n\n`;
+  const marker = '`'.repeat(Math.max(3, ...runs.map((run) => run.length + 1)));
+  return `${marker}${info}\n${body}\n${marker}\n\n`;
+}
+function json(value: unknown): string {
+  return fence(JSON.stringify(value, null, 2), 'json');
 }
 function table(headers: string[], rows: string[][]): string {
   return `| ${headers.join(' | ')} |\n| ${headers.map(() => '---').join(' | ')} |\n${rows.map((row) => `| ${row.join(' | ')} |\n`).join('')}\n`;
@@ -132,7 +135,7 @@ export const MarkdownGenerator = {
         if (server.advertisedCapabilities)
           output += `#### Advertised capabilities\n\n${json(server.advertisedCapabilities)}`;
         if (server.instructions)
-          output += `<details>\n<summary>Server instructions</summary>\n\n${json(server.instructions)}\n</details>\n\n`;
+          output += `<details>\n<summary>Server instructions</summary>\n\n${fence(server.instructions, 'text')}</details>\n\n`;
       }
       for (const key of Object.keys(labels) as (keyof typeof labels)[]) {
         const entries = server.capabilities[key] ?? [];
@@ -169,6 +172,11 @@ export const MarkdownGenerator = {
         for (const entry of entries) {
           output += `<details>\n<summary>${htmlText(entry.name)}</summary>\n\n`;
           const data: Record<string, unknown> = { ...entry };
+          // Long fields get their own sections; Definition carries every remaining descriptor field.
+          if (entry.description) {
+            output += `#### Description\n\n${fence(entry.description, 'text')}`;
+            delete data.description;
+          }
           if (key === 'tools') {
             const tool = entry as ToolInfo;
             delete data.inputSchema;
