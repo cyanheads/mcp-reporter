@@ -57,6 +57,26 @@ test('negative CLI flags hide their sections and quiet mode produces no progress
     await rm(dir, { recursive: true, force: true });
   }
 });
+test('progress names the server behind each failure', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'mcp-reporter-cli-'));
+  try {
+    const config = join(dir, 'config.json');
+    await writeFile(
+      config,
+      JSON.stringify({
+        mcpServers: {
+          missing: { command: join(dir, 'missing-command') },
+          fixture: { command: 'node', args: [resolve('tests/fixtures/legacy-server.mjs')] },
+        },
+      }),
+    );
+    const result = await cli(['--config', config, '--output', join(dir, 'report.md')]);
+    expect(result.code).toBe(0);
+    expect(result.stderr).toContain('missing: Executable not found');
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
 test('invalid JSON fails without printing the credential-bearing content', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'mcp-reporter-cli-'));
   try {

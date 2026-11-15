@@ -16,10 +16,13 @@ export const ProgressReporter = {
     spinner?.stop();
     spinner = undefined;
   },
-  /** Display one safe reporter event. */
+  /** Display one safe reporter event; failures name their server, since concurrent servers interleave. */
   processProgressEvent(event: ProgressEvent): void {
     spinner ??= ora({ stream: process.stderr, discardStdin: false });
-    if (event.stage === 'error') spinner.fail(event.message);
+    if (event.stage === 'error')
+      spinner.fail(
+        event.serverId === undefined ? event.message : `${event.serverId}: ${event.message}`,
+      );
     else if (event.stage === 'complete') spinner.succeed(event.message);
     else spinner.start(event.message);
   },

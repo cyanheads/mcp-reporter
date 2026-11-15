@@ -44,6 +44,8 @@ function diagnostic(error: unknown): string {
     return 'Authorization failed: the configured credentials lack the required scope.';
   if (error instanceof UnauthorizedError)
     return 'Authorization required; check the configured credentials.';
+  if (error instanceof SdkHttpError && error.status >= 300 && error.status < 400)
+    return `HTTP ${error.status} redirect not followed: it leaves the configured origin or changes the request method; configure the final endpoint URL.`;
   if (error instanceof SdkHttpError)
     return `HTTP ${error.status} (${error.code}); check endpoint access and configured authorization.`;
   if (error instanceof ProtocolError) return `MCP request failed (JSON-RPC ${error.code}).`;
@@ -53,14 +55,16 @@ function diagnostic(error: unknown): string {
   return 'Connection or request failed; check the server configuration and availability.';
 }
 
+/** Servers collected at once: one slow or stalled server no longer delays the rest, while child processes and sockets stay bounded. */
+const SERVER_CONCURRENCY = 4;
+
 /** Collect server definitions without invoking tools, reading resources, or rendering prompts. */
 export class McpReporter {
+  private readonly configPath: string;
   private readonly options;
   private servers: ServerInfo[] = [];
-  constructor(
-    private readonly configPath: string,
-    options: Partial<ReportOptions> = {},
-  ) {
+  constructor(configPath: string, options: Partial<ReportOptions> = {}) {
+    this.configPath = configPath;
     this.options = { ...DEFAULT_OPTIONS, ...options };
     if (!Number.isSafeInteger(this.options.maxPages) || this.options.maxPages < 1)
       throw new Error('maxPages must be a positive integer.');
@@ -86,19 +90,9 @@ export class McpReporter {
       .map(([id, config]) => ({ id, name: id, config, connected: false }));
     this.progress({ stage: 'init', message: `Found ${this.servers.length} enabled MCP servers` });
   }
-  private async connect(server: ServerInfo): Promise<void> {
+  /** Connect `client` and record identity on `server`; a failure is recorded there, not thrown. */
+  private async connect(server: ServerInfo, client: Client): Promise<void> {
     let transport: Transport | undefined;
-    const mode = this.options.protocolEra;
-    const client = new Client(
-      { name: 'mcp-reporter', version: VERSION },
-      {
-        capabilities: {},
-        ...(mode === 'legacy'
-          ? {}
-          : { versionNegotiation: { mode: mode === 'auto' ? 'auto' : { pin: mode } } }),
-      },
-    );
-    server.client = client;
     this.progress({
       stage: 'connecting',
       serverId: server.id,
@@ -110,8 +104,9 @@ export class McpReporter {
       transport = this.options.transportFactory
         ? await this.options.transportFactory(config, server.id)
         : config.url !== undefined
-          ? new StreamableHTTPClientTransport(new URL(config.url), {
-              requestInit: { headers: config.headers, redirect: 'error' },
+          ? // The SDK's default redirect policy follows same-origin, method-preserving redirects only.
+            new StreamableHTTPClientTransport(new URL(config.url), {
+              requestInit: { headers: config.headers },
             })
           : new StdioClientTransport({
               command: config.command,
@@ -156,7 +151,7 @@ export class McpReporter {
       });
     }
   }
-  private async collect(server: ServerInfo): Promise<ServerReport> {
+  private async collect(server: ServerInfo, client: Client): Promise<ServerReport> {
     const capabilities: Required<ServerCapabilities> = {
       tools: [],
       resources: [],
@@ -165,8 +160,7 @@ export class McpReporter {
     };
     const capabilityStatus: NonNullable<ServerReport['capabilityStatus']> = {};
     const report: ServerReport = { ...server, capabilities, capabilityStatus };
-    if (!server.connected || !server.client) return report;
-    const client = server.client;
+    if (!server.connected) return report;
     const requests = {
       tools: async (cursor?: string) => {
         const page = await client.request(
@@ -243,28 +237,48 @@ export class McpReporter {
     }
     return report;
   }
-  /** Run a fresh collection; always close clients, including after report write failures. */
-  public async run(): Promise<void> {
-    const reports: ServerReport[] = [];
+  /** Connect, collect, and close one server; its connection never outlives its own report. */
+  private async report(server: ServerInfo): Promise<ServerReport> {
+    const mode = this.options.protocolEra;
+    const client = new Client(
+      { name: 'mcp-reporter', version: VERSION },
+      {
+        capabilities: {},
+        ...(mode === 'legacy'
+          ? {}
+          : { versionNegotiation: { mode: mode === 'auto' ? 'auto' : { pin: mode } } }),
+      },
+    );
     try {
-      await this.readConfig();
-      for (const server of this.servers) {
-        await this.connect(server);
-        reports.push(await this.collect(server));
-      }
-      const markdown = MarkdownGenerator.generateReport(reports, this.options);
-      await mkdir(dirname(this.options.outputPath), { recursive: true });
-      await writeFile(this.options.outputPath, markdown, 'utf8');
-      this.progress({ stage: 'complete', message: 'MCP server capability reporting complete' });
+      await this.connect(server, client);
+      return await this.collect(server, client);
     } finally {
-      for (const server of this.servers) {
-        try {
-          await server.client?.close();
-        } catch (error) {
-          this.progress({ stage: 'error', serverId: server.id, message: diagnostic(error) });
-        }
-      }
+      await client.close().catch((error) => {
+        this.progress({ stage: 'error', serverId: server.id, message: diagnostic(error) });
+      });
     }
+  }
+  /** Run a fresh collection; every connection is closed before the report is written. */
+  public async run(): Promise<void> {
+    await this.readConfig();
+    const reports: ServerReport[] = [];
+    // Workers share one iterator, so each server is taken once and reports keep configuration order.
+    const pending = this.servers.entries();
+    const workers = Array.from(
+      { length: Math.min(SERVER_CONCURRENCY, this.servers.length) },
+      async () => {
+        for (const [index, server] of pending) reports[index] = await this.report(server);
+      },
+    );
+    // Settle every worker before rethrowing so no connection is still open when run() rejects.
+    const failure = (await Promise.allSettled(workers)).find(
+      (result): result is PromiseRejectedResult => result.status === 'rejected',
+    );
+    if (failure) throw failure.reason;
+    const markdown = MarkdownGenerator.generateReport(reports, this.options);
+    await mkdir(dirname(this.options.outputPath), { recursive: true });
+    await writeFile(this.options.outputPath, markdown, 'utf8');
+    this.progress({ stage: 'complete', message: 'MCP server capability reporting complete' });
   }
 }
 /** Default executable entry point, retained for direct invocation. */

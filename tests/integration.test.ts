@@ -321,6 +321,87 @@ test('injected startup failure closes the transport and skips disabled entries',
   }
 });
 
+/** One in-memory SDK server per configured ID, connected through `transportFactory`. */
+async function servers(ids: string[], listTools: (id: string) => Promise<void> = async () => {}) {
+  const dir = await mkdtemp(join(tmpdir(), 'mcp-reporter-many-'));
+  const configPath = join(dir, 'config.json');
+  const outputPath = join(dir, 'report.md');
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      mcpServers: Object.fromEntries(ids.map((id) => [id, { command: 'unused' }])),
+    }),
+  );
+  const open = new Set<string>();
+  const peers: Server[] = [];
+  let maxOpen = 0;
+  const run = async () => {
+    await new McpReporter(configPath, {
+      outputPath,
+      timeoutMs: 1000,
+      transportFactory: async (_config, id) => {
+        const server = new Server({ name: id, version: '1.0.0' }, { capabilities: { tools: {} } });
+        server.setRequestHandler('tools/list', async () => {
+          await listTools(id);
+          return { tools: [{ name: `${id}-tool`, inputSchema: { type: 'object' } }] };
+        });
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await server.connect(serverTransport);
+        peers.push(server);
+        open.add(id);
+        maxOpen = Math.max(maxOpen, open.size);
+        const close = clientTransport.close.bind(clientTransport);
+        clientTransport.close = async () => {
+          open.delete(id);
+          await close();
+        };
+        return clientTransport;
+      },
+    }).run();
+    return readFile(outputPath, 'utf8');
+  };
+  return {
+    run,
+    open,
+    maxOpen: () => maxOpen,
+    cleanup: async () => {
+      await Promise.all(peers.map((server) => server.close()));
+      await rm(dir, { recursive: true, force: true });
+    },
+  };
+}
+
+test('servers are collected concurrently, in configuration order', async () => {
+  const { promise: secondStarted, resolve } = Promise.withResolvers<void>();
+  const s = await servers(['first', 'second'], async (id) => {
+    if (id === 'first') await secondStarted;
+    else resolve();
+  });
+  try {
+    const report = await s.run();
+    expect(report).not.toContain('incomplete');
+    expect(report.indexOf('## first')).toBeGreaterThan(-1);
+    expect(report.indexOf('## first')).toBeLessThan(report.indexOf('## second'));
+    expect(report).toContain('first-tool');
+  } finally {
+    await s.cleanup();
+  }
+});
+
+test('each connection closes once its lists are collected, not at the end of the run', async () => {
+  const ids = Array.from({ length: 10 }, (_, index) => `server-${index}`);
+  const s = await servers(ids);
+  try {
+    const report = await s.run();
+    for (const id of ids) expect(report).toContain(`${id}-tool`);
+    expect(s.maxOpen()).toBeGreaterThan(1);
+    expect(s.maxOpen()).toBeLessThan(ids.length);
+    expect(s.open.size).toBe(0);
+  } finally {
+    await s.cleanup();
+  }
+});
+
 test('raw collection retains advertised header declarations', async () => {
   const f = await fixture({ tools: {} });
   f.server.setRequestHandler('tools/list', async () => ({

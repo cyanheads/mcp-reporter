@@ -6,6 +6,7 @@
     "outDir": "dist",
     "rootDir": "src",
     "strict": true,
+    "erasableSyntaxOnly": true,
     "declaration": true,
     "sourceMap": true,
     "forceConsistentCasingInFileNames": true,

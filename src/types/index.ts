@@ -58,6 +58,7 @@ export interface ServerInfo {
   id: string;
   name: string;
   config: McpServerConfig;
+  /** @deprecated Never populated: each connection is closed before its report is rendered. */
   client?: Client;
   connected: boolean;
   error?: string;

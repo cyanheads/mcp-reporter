@@ -90,6 +90,66 @@ for (const protocolEra of ['legacy', 'auto', '2026-07-28'] as const) {
   });
 }
 
+test('HTTP follows a same-origin redirect and refuses a cross-origin one before sending headers', async () => {
+  const handler = createMcpHandler(() => {
+    const server = new Server(
+      { name: 'redirect-fixture', version: '1.0.0' },
+      { capabilities: { tools: {} } },
+    );
+    server.setRequestHandler('tools/list', async () => ({
+      tools: [{ name: 'redirected-tool', inputSchema: { type: 'object' } }],
+    }));
+    return server;
+  });
+  const foreignAuth: (string | null)[] = [];
+  const foreign = Bun.serve({
+    hostname: '127.0.0.1',
+    port: 0,
+    fetch(request) {
+      foreignAuth.push(request.headers.get('authorization'));
+      return handler.fetch(request);
+    },
+  });
+  const http = Bun.serve({
+    hostname: '127.0.0.1',
+    port: 0,
+    fetch(request) {
+      const { pathname } = new URL(request.url);
+      if (pathname === '/mcp') return Response.redirect(new URL('/mcp/', request.url), 307);
+      if (pathname === '/elsewhere') return Response.redirect(new URL('/mcp/', foreign.url), 307);
+      return handler.fetch(request);
+    },
+  });
+  const dir = await mkdtemp(join(tmpdir(), 'mcp-reporter-redirect-'));
+  try {
+    const config = join(dir, 'config.json');
+    const outputPath = join(dir, 'report.md');
+    const headers = { Authorization: 'Bearer redirect-secret' };
+    await writeFile(
+      config,
+      JSON.stringify({
+        mcpServers: {
+          sameOrigin: { url: `${http.url}mcp`, headers },
+          crossOrigin: { url: `${http.url}elsewhere`, headers },
+        },
+      }),
+    );
+    await new McpReporter(config, { outputPath, timeoutMs: 2000 }).run();
+    const report = await readFile(outputPath, 'utf8');
+    expect(report).toContain('redirected-tool');
+    expect(report).toContain('## sameOrigin');
+    expect(report).toContain('| crossOrigin | HTTP 307 redirect not followed');
+    expect(report).not.toContain('## crossOrigin');
+    expect(foreignAuth).toEqual([]);
+    expect(report).not.toContain('redirect-secret');
+  } finally {
+    await handler.close();
+    await http.stop(true);
+    await foreign.stop(true);
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 for (const status of [401, 403, 500]) {
   test(`HTTP ${status} remains a safe, distinguishable connection failure`, async () => {
     const http = Bun.serve({
