@@ -17,45 +17,23 @@ body:
         - `breaking-change` — fix will break the CLI or programmatic API
         - `surplus-token-idea` — worth exploring when token budget allows
 
-  - type: input
-    id: version
+  - type: textarea
+    id: environment
     attributes:
-      label: mcp-reporter version
-      placeholder: "1.0.1"
+      label: Environment
+      description: "Replace the second row. mcp-reporter: the installed version (`mcp-reporter --version`). Runtime: Node.js or Bun, with its version. Entry point: the CLI or the `McpReporter` class. Transport: stdio or Streamable HTTP. OS is optional."
+      value: |
+        | mcp-reporter | Runtime | Entry point | Transport | OS |
+        |---|---|---|---|---|
+        | 1.2.0 | Node.js 22.x | CLI | stdio | macOS 15.x |
     validations:
       required: true
-
-  - type: input
-    id: node-version
-    attributes:
-      label: Node.js version
-      placeholder: "22.14.0"
-    validations:
-      required: true
-
-  - type: dropdown
-    id: entry-point
-    attributes:
-      label: Entry point
-      options:
-        - CLI (mcp-reporter)
-        - Programmatic (McpReporter class)
-    validations:
-      required: true
-
-  - type: input
-    id: os
-    attributes:
-      label: OS
-      placeholder: "macOS 15.x / Ubuntu 24.04 / Windows 11"
-    validations:
-      required: false
 
   - type: textarea
     id: description
     attributes:
       label: Description
-      description: What happened and what you expected instead.
+      description: What happened and what you expected instead — two or three sentences.
       placeholder: "A server advertising 40 tools is reported with only the first 25."
     validations:
       required: true
@@ -111,6 +89,6 @@ body:
     id: context
     attributes:
       label: Additional context
-      description: Workarounds, related issues, or anything else relevant.
+      description: Only what changes the fix — a workaround, a related issue, the one log line that matters.
     validations:
       required: false

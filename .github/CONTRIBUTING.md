@@ -21,10 +21,16 @@ A few things that save a round-trip:
 
 ## What makes an issue actionable
 
-- mcp-reporter version, Node.js version, and whether you ran the CLI or the `McpReporter` class.
+- mcp-reporter version, runtime (Node.js or Bun), transport (stdio or Streamable HTTP), and whether you ran the CLI or the `McpReporter` class.
 - The `mcpServers` entry that reproduces it, redacted.
 - Actual vs expected behavior, verbatim: console output, error messages, and the offending section of the generated report as they appeared.
 - For features: the use case first, then the config key, CLI flag, or report section as you'd want to use it.
+
+## For agents
+
+Use one of the two forms and do the triage first. The free-form path is for humans thinking out loud, not for skipping the checklist — an unverified report costs more to read than it saves to file.
+
+The workflow ships in the package: [`skills/report-issue-local/SKILL.md`](../skills/report-issue-local/SKILL.md) — triage, deduplication, form-matched bodies, title scopes, and labels. Read it before filing on a user's behalf.
 
 ## Security
 
